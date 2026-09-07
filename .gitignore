@@ -1,0 +1,20 @@
+# Lokalne środowisko wyłącznie modułu wyboru klientów reprezentatywnych.
+/.venv-representative-clients/
+
+# Służbowe wejścia i wyniki tego modelu. Nie ignorujemy globalnie plików XLSX.
+/Dane_in/
+/Dane_out/
+
+# Lokalne artefakty uruchomieniowe tego modułu.
+/representative_clients/__pycache__/
+/representative_clients/*.gdx
+/representative_clients/*.lst
+/representative_clients/*.lxi
+
+# Pozostałe lokalne cache i środowiska Pythona.
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+.DS_Store
