@@ -138,6 +138,7 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
             exclusions[key] = set()
             required[key] = set()
             for path, _ in entries:
+                print(f"Kontrola list: {path.name} ({BRANCH_LABELS[key]})...", flush=True)
                 all_ids, allowed_ids, excluded_ids, required_ids = inspect_workbook_clients(
                     path, consents.by_branch[key]
                 )

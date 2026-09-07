@@ -62,7 +62,7 @@ def choose_run() -> tuple[list[str], Path] | None:
     ttk.Label(panel, text="1. Pliki źródłowe modelu głównego dla wszystkich 8 OSD").grid(sticky="w")
     ttk.Label(
         panel,
-        text="XLSX: Klienci, Klienci_part_1, Klienci_part_2, Oddzial/Oddział, Ograniczenia.",
+        text="XLSX: układ dzielony lub profile w Klienci (np. Białystok); Oddzial/Oddział i Ograniczenia.",
         wraplength=770,
     ).grid(sticky="w", pady=(2, 5))
     listing = Listbox(panel, height=7, selectmode="extended")

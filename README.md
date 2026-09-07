@@ -13,6 +13,10 @@ Kod nie wymaga GAMS. Solver HiGHS jest dostępny przez SciPy.
 4. Otwórz `uruchom_klientow_reprezentatywnych.py` i kliknij **Run Python File in Terminal**.
 5. W formularzu wskaż źródła XLSX i eksport zgód. Najpierw wykonaj sprawdzenie danych.
 
+Obsługiwane są oba układy wejścia: profile w `Klienci_part_1` i `Klienci_part_2`
+oraz profile bezpośrednio w `Klienci` (np. Białystok). Program rozpoznaje je
+automatycznie, bez przerabiania plików Excel.
+
 Pełna instrukcja instalacji, schematu wejść, wyników i limitów:
 [START_KLIENCI_REPREZENTATYWNI.md](START_KLIENCI_REPREZENTATYWNI.md).
 
@@ -42,5 +46,5 @@ na rzeczywistych skoroszytach źródłowych.
 python -m unittest discover -s tests -p "test_representative*.py" -v
 ```
 
-Wersja pakietu: 1.3. Zweryfikowano 71 testów, w tym limity czasu,
-zapis częściowy oraz scenariusze 500 i 1100 par.
+Wersja pakietu: 1.4. Zweryfikowano 79 testów, w tym oba układy Excela,
+limity czasu, zapis częściowy oraz scenariusze 500 i 1100 par.

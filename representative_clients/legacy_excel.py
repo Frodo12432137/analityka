@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
@@ -24,12 +25,14 @@ _SHEET_ALIASES = {
 
 
 def _resolve_sheet_names(workbook: object) -> Dict[str, str]:
-    """Mapuje nazwy logiczne GAMS na warianty spotkane w plikach XLSX."""
+    """Rozpoznaje układ dzielony v8 lub profile bezpośrednio w Klienci."""
 
     available = set(workbook.sheetnames)
     resolved: Dict[str, str] = {}
     missing = []
     for logical_name, aliases in _SHEET_ALIASES.items():
+        if logical_name.startswith("Klienci_part_"):
+            continue
         matches = [name for name in aliases if name in available]
         if not matches:
             missing.append(" / ".join(aliases))
@@ -42,9 +45,50 @@ def _resolve_sheet_names(workbook: object) -> Dict[str, str]:
         resolved[logical_name] = matches[0]
     if missing:
         raise ValueError(
-            "Brak arkuszy wymaganych przez GAMS v8: " + ", ".join(missing)
+            "Brak wymaganych arkuszy: " + ", ".join(missing)
+            + ". Dostępne: " + ", ".join(workbook.sheetnames)
+        )
+    inline = _has_inline_profile_header(workbook[resolved["Klienci"]])
+    parts = [name for name in ("Klienci_part_1", "Klienci_part_2") if name in available]
+    if inline and parts:
+        raise ValueError(
+            "Niejednoznaczny układ: profile występują w Klienci oraz istnieją "
+            "arkusze Klienci_part_*. Nie można bezpiecznie ustalić, które źródło czytać."
+        )
+    if len(parts) == 2:
+        resolved.update({name: name for name in parts})
+    elif parts:
+        raise ValueError(
+            "Niekompletny układ dzielony: potrzebne są oba arkusze "
+            "Klienci_part_1 i Klienci_part_2. Dostępne: " + ", ".join(workbook.sheetnames)
+        )
+    elif inline:
+        _hours_from_header(workbook[resolved["Klienci"]], 2, 4)
+    else:
+        raise ValueError(
+            "Nie rozpoznano układu źródła. Oczekiwano Klienci_part_1 i Klienci_part_2 "
+            "albo profili w Klienci: A2=Oddzial, B2=Klient, C2=dataCET/Data, D2 i dalej=godziny. "
+            "Dostępne arkusze: " + ", ".join(workbook.sheetnames)
         )
     return resolved
+
+
+def _has_inline_profile_header(sheet: object) -> bool:
+    header = next(sheet.iter_rows(min_row=2, max_row=2, max_col=3, values_only=True), ())
+    def normalize(value):
+        text = unicodedata.normalize("NFKD", str(value or "").strip().casefold().replace("ł", "l"))
+        return "".join(char for char in text if not unicodedata.combining(char) and char not in " _")
+    return len(header) == 3 and (
+        normalize(header[0]) in {"oddzial", "osd"}
+        and normalize(header[1]) == "klient"
+        and normalize(header[2]) in {"datacet", "data", "date"}
+    )
+
+
+def _profile_sheet_names(sheets: Dict[str, str]) -> Tuple[str, ...]:
+    if "Klienci_part_1" in sheets:
+        return sheets["Klienci_part_1"], sheets["Klienci_part_2"]
+    return (sheets["Klienci"],)
 
 
 def _identifier(value: object) -> str:
@@ -124,24 +168,30 @@ def _hours_from_header(
 
 
 def _read_clients(
-    sheet: object, allowed_client_ids: Optional[AbstractSet[str]] = None
+    sheet: object, allowed_client_ids: Optional[AbstractSet[str]] = None,
+    *, profiles_in_sheet: bool = False,
 ) -> Tuple[Tuple[str, ...], frozenset[str]]:
     clients: List[str] = []
     all_clients = set()
+    first_row, column, letter = (3, 2, "B") if profiles_in_sheet else (2, 1, "A")
     for row_number, (raw_client,) in enumerate(
-        sheet.iter_rows(min_row=2, min_col=1, max_col=1, values_only=True), start=2
+        sheet.iter_rows(min_row=first_row, min_col=column, max_col=column, values_only=True), start=first_row
     ):
-        client_id = _client_identifier(raw_client, f"Klienci!A{row_number}")
+        client_id = _client_identifier(raw_client, f"Klienci!{letter}{row_number}")
         if not client_id:
             continue
         if client_id in all_clients:
+            if profiles_in_sheet:
+                # Ten sam PPE pojawia się dla kolejnych dat. Duplikaty całego
+                # klucza (OSD, PPE, data) kontroluje importer profili.
+                continue
             raise ValueError(f"Arkusz Klienci zawiera duplikat {client_id!r}.")
         all_clients.add(client_id)
         if allowed_client_ids is None or client_id in allowed_client_ids:
             clients.append(client_id)
     if not clients:
         if allowed_client_ids is None:
-            raise ValueError("Arkusz Klienci nie zawiera żadnego klienta od A2 w dół.")
+            raise ValueError(f"Arkusz Klienci nie zawiera żadnego klienta od {letter}{first_row} w dół.")
         raise ValueError(
             "Po połączeniu z aktualną listą zgód w arkuszu Klienci nie został "
             "żaden dopuszczony PPE."
@@ -439,7 +489,7 @@ def load_gams_workbook(
     on_stage: Optional[Callable[[str], None]] = None,
     allowed_client_ids: Optional[AbstractSet[str]] = None,
 ) -> SelectionData:
-    """Czyta układ Excela używany przez ``Model_dobor_klientow_v8.gms``.
+    """Czyta układ dzielony v8 lub trzyarkuszowy wariant z profilami w Klienci.
 
     Odtwarzane zakresy to: ``Oddzial!A2``, ``Klienci!A2``,
     ``Klienci_part_1!A2``, ``Klienci_part_2!A2`` i ``Ograniczenia!A2/F2``.
@@ -469,12 +519,15 @@ def load_gams_workbook(
         ) from exc
     try:
         sheets = _resolve_sheet_names(workbook)
-    except ValueError:
+    except ValueError as exc:
         workbook.close()
-        raise
+        raise ValueError(f"{source.name}: {exc}") from exc
 
     try:
+        profile_sheets = _profile_sheet_names(sheets)
+        inline = "Klienci_part_1" not in sheets
         if on_stage is not None:
+            on_stage("układ: profile w Klienci (PPE w B, data w C, godziny od D)" if inline else "układ: Klienci_part_1 + Klienci_part_2")
             on_stage("sprawdzanie formuł i pamięci podręcznej Excela...")
         formula_count, formula_examples = _uncached_formula_cells(
             source,
@@ -485,16 +538,7 @@ def load_gams_workbook(
                     workbook[sheets["Oddzial"]].max_column,
                 ),
                 sheets["Klienci"]: (2, 1, 1),
-                sheets["Klienci_part_1"]: (
-                    2,
-                    1,
-                    workbook[sheets["Klienci_part_1"]].max_column,
-                ),
-                sheets["Klienci_part_2"]: (
-                    2,
-                    1,
-                    workbook[sheets["Klienci_part_2"]].max_column,
-                ),
+                **{name: (2, 1, workbook[name].max_column) for name in profile_sheets},
                 sheets["Ograniczenia"]: (2, 1, 6),
             },
         )
@@ -512,7 +556,7 @@ def load_gams_workbook(
         if on_stage is not None:
             on_stage("wczytywanie klientów i bilansu oddziału...")
         clients, all_client_ids = _read_clients(
-            workbook[sheets["Klienci"]], allowed_client_ids
+            workbook[sheets["Klienci"]], allowed_client_ids, profiles_in_sheet=inline,
         )
         (
             branches,
@@ -530,30 +574,13 @@ def load_gams_workbook(
             ) from exc
         client_positions = {client_id: index for index, client_id in enumerate(clients)}
         period_positions = {period: index for index, period in enumerate(periods)}
-        if on_stage is not None:
-            on_stage("wczytywanie Klienci_part_1...")
-        _add_profile_sheet(
-            workbook[sheets["Klienci_part_1"]],
-            selected_branch,
-            frozenset(branches),
-            all_client_ids,
-            client_positions,
-            period_positions,
-            profiles,
-            on_stage,
-        )
-        if on_stage is not None:
-            on_stage("wczytywanie Klienci_part_2...")
-        _add_profile_sheet(
-            workbook[sheets["Klienci_part_2"]],
-            selected_branch,
-            frozenset(branches),
-            all_client_ids,
-            client_positions,
-            period_positions,
-            profiles,
-            on_stage,
-        )
+        for name in profile_sheets:
+            if on_stage is not None:
+                on_stage(f"wczytywanie {name}...")
+            _add_profile_sheet(
+                workbook[name], selected_branch, frozenset(branches),
+                all_client_ids, client_positions, period_positions, profiles, on_stage,
+            )
         if on_stage is not None:
             on_stage("wczytywanie ograniczeń...")
         excluded_all, required_all = _read_restrictions(
@@ -574,6 +601,8 @@ def load_gams_workbook(
             if client_id in selected_ids
         }
 
+    except ValueError as exc:
+        raise ValueError(f"{source.name}: {exc}") from exc
     finally:
         workbook.close()
 

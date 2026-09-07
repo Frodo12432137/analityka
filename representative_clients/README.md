@@ -22,6 +22,12 @@ Skarżyska-Kamiennej, Warszawy i Zamościa. Limit jest dzielony proporcjonalnie
 do liczby dostępnych klientów w OSD, z zachowaniem miejsca na jednego
 unikalnego zastępcę dla każdego wybranego PPE.
 
+Źródła mogą mieć pięć arkuszy (lista w Klienci oraz profile w Klienci_part_1
+i Klienci_part_2) albo trzy arkusze, jak Białystok (profile w Klienci: A=OSD,
+B=PPE, C=data, D+=godziny; nagłówki w wierszu 2). W obu przypadkach potrzebne
+są Oddzial/Oddział oraz Ograniczenia. Program rozpoznaje układ automatycznie,
+bez zmieniania Excela; można połączyć oba formaty w jednym przebiegu.
+
 Najprościej uruchomić na Windows:
 
 ```powershell

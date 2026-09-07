@@ -23,23 +23,27 @@ def inspect_workbook_clients(
     workbook = load_workbook(Path(path), read_only=True, data_only=True)
     try:
         sheets = _resolve_sheet_names(workbook)
-        _, all_clients = _read_clients(workbook[sheets["Klienci"]])
+        _, all_clients = _read_clients(
+            workbook[sheets["Klienci"]], profiles_in_sheet="Klienci_part_1" not in sheets,
+        )
         excluded, required = _read_restrictions(workbook[sheets["Ograniczenia"]])
         client_set = all_clients & frozenset(allowed_client_ids)
         missing_consent = (set(required) & all_clients) - client_set
         if missing_consent:
             raise ValueError(
-                f"{Path(path).name}: {len(missing_consent)} wymaganych PPE nie ma "
+                f"{len(missing_consent)} wymaganych PPE nie ma "
                 "w pliku zgód dla tego OSD. Sprawdź Ograniczenia!E:F."
             )
         if set(required) & excluded:
-            raise ValueError(f"{Path(path).name}: PPE jednocześnie wymagany i wykluczony.")
+            raise ValueError("PPE jednocześnie wymagany i wykluczony.")
         return (
             all_clients,
             client_set,
             frozenset(excluded & client_set),
             frozenset(set(required) & client_set),
         )
+    except ValueError as exc:
+        raise ValueError(f"{Path(path).name}: {exc}") from exc
     finally:
         workbook.close()
 

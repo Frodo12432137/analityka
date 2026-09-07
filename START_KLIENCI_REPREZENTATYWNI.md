@@ -101,7 +101,10 @@ dodaj wszystkie potrzebne części. Nie dokładaj równolegle starych wersji i k
 tego samego zbioru. Nazwa w1/w2/w3/w4 sama w sobie nie oznacza, że trzeba
 połączyć wszystkie te pliki: zdecyduj na podstawie zawartości i wersji wejścia.
 
-Każdy wskazany skoroszyt musi mieć **pięć arkuszy w poniższym układzie**:
+Czytnik automatycznie rozpoznaje dwa układy; można je łączyć w jednym przebiegu.
+Nazwy plików nie decydują o sposobie importu.
+
+**Układ dzielony (pozostałe OSD) — pięć arkuszy:**
 
 | Arkusz | Zawartość odczytywana przez program |
 |---|---|
@@ -115,10 +118,28 @@ Oba arkusze części muszą istnieć. Jeśli część 2 nie zawiera danych, pozo
 jej prawidłowe nagłówki; nie kopiuj do niej danych z części 1, bo podwoiłoby
 to profile. PPE i daty w częściach muszą odpowiadać listom w Klienci i Oddzial.
 
-**Pokazany wcześniej plik Model_Pzastepcze_…_Pzastepcze.xlsx z trzema arkuszami,
-profilem bezpośrednio w Klienci oraz wagami w I:J nie jest wejściem tego czytnika.**
-Przygotuj pięcioarkuszowe źródła używane przez model główny v8. Wagi klientów
-podstawowych i zastępców są liczone przez Pythona.
+**Układ z profilami w Klienci (np. Model_2025_20260318_Bialystok.xlsx) — trzy arkusze:**
+
+| Arkusz | Zawartość odczytywana przez program |
+|---|---|
+| Klienci | Wiersz 2: A = Oddzial/Oddział, B = Klient, C = dataCET/Data, od D2 godziny. Od wiersza 3: OSD, PPE, data i bilans godzinowy. |
+| Oddzial lub Oddział | Jak w układzie dzielonym: dane od wiersza 3, data w B, godziny od C. |
+| Ograniczenia | Tak jak wyżej: wykluczeni w A, wymagani w E, ich ustalone wagi w F. Listy mogą być puste. |
+
+Lista PPE powstaje z kolumny B arkusza Klienci, w kolejności pierwszego wystąpienia.
+Powtórzenie PPE dla innej daty jest prawidłowe; powtórzenie całego klucza
+OSD–PPE–data jest błędem. Wiersz 1 z sumami kontrolnymi nie jest profilem.
+Nie trzeba dodawać ani przemianowywać arkuszy w Białymstoku.
+
+Arkuszy Klienci_part_1 i Klienci_part_2 nie powinno być w układzie trzyarkuszowym.
+Jeśli występują razem z profilami w Klienci, program zgłasza niejednoznaczność,
+zamiast ryzykować podwójne zliczenie danych. Niekompletny układ dzielony także
+zostanie odrzucony; program nie dopisuje brakujących części jako zer.
+
+Użyj źródła modelu głównego. W plikach historycznego modelu zastępców mogą
+występować inne listy wykluczeń i stare wagi w I:J — te kolumny nie są importowane.
+Wagi klientów podstawowych i zastępców są liczone przez Pythona, z zachowaniem
+ewentualnych wymaganych wag z E:F.
 
 Do obliczeń nie trzeba dostarczać plików .gms, .gdx, .lst, .lxi ani starych
 wyników Wyniki_Pz. Mogą służyć do późniejszego porównania rezultatów.
@@ -152,6 +173,8 @@ deduplikowany; sprzeczne profile lub wymagane wagi są zgłaszane jako błąd.
 Zapisz przeliczone skoroszyty w Excelu przed odczytem, jeśli zawierają formuły.
 Formuła bez zapisanego wyniku jest odrzucana. Puste komórki liczbowe są
 traktowane jak zero zgodnie ze starym importem GAMS.
+Log pokazuje nazwę aktualnie kontrolowanego pliku i rozpoznany układ.
+Błędy układu lub danych importu zawierają nazwę pliku i szczegóły problemu.
 
 Potrzeba co najmniej dwóch dopuszczonych PPE na każdą parę podstawowy–zastępca
 w danym OSD. Dla 1100 podstawowych jest to minimum 2200 różnych dopuszczonych
