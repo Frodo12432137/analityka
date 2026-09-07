@@ -18,7 +18,7 @@ class SelectionConfig:
     max_clients_per_group: int = 50
     group_count: int = 4
     max_contribution_share: float = 0.20
-    time_limit_seconds: float = 14_400.0
+    time_limit_seconds: Optional[float] = 14_400.0
     mip_relative_gap: float = 0.10
     weight_lower_factor: float = 0.10
     weight_upper_factor: float = 5.0
@@ -42,6 +42,8 @@ class SelectionConfig:
             "weight_upper_factor": self.weight_upper_factor,
         }
         for name, value in numeric.items():
+            if name == "time_limit_seconds" and value is None:
+                continue
             if isinstance(value, bool) or not isinstance(value, Real):
                 raise ValueError(f"{name} musi być liczbą.")
             if not math.isfinite(float(value)):
@@ -49,7 +51,7 @@ class SelectionConfig:
 
         if self.max_contribution_share < 0:
             raise ValueError("max_contribution_share nie może być ujemne.")
-        if self.time_limit_seconds <= 0:
+        if self.time_limit_seconds is not None and self.time_limit_seconds <= 0:
             raise ValueError("time_limit_seconds musi być dodatnie.")
         if not 0 <= self.mip_relative_gap <= 1:
             raise ValueError("mip_relative_gap musi należeć do [0, 1].")

@@ -109,6 +109,7 @@ def choose_unique_reserves(
     *,
     initial_shortlist: int = 32,
     maximum_weight: float = 3000.0,
+    check_budget=None,
 ) -> ReplacementResult:
     """Dobiera globalnie jeden różny zastępca do każdego wybranego PPE."""
 
@@ -154,6 +155,8 @@ def choose_unique_reserves(
     cached: Dict[Tuple[int, int], Tuple[float, float]] = {}
     assignment: Mapping[int, int] | None = None
     while assignment is None:
+        if check_budget is not None:
+            check_budget()
         _, neighbours = tree.query(primary_features, k=shortlist)
         neighbours = np.asarray(neighbours, dtype=int)
         if neighbours.ndim == 1:
@@ -162,6 +165,8 @@ def choose_unique_reserves(
         columns: list[int] = []
         costs: list[float] = []
         for primary_index in range(primary_count):
+            if check_budget is not None:
+                check_budget()
             target = primary_profiles[:, primary_index] * selected[primary_index][2]
             denominator = max(float(np.sum(np.abs(target))), 1e-12)
             for reserve_index in np.unique(neighbours[primary_index]):
@@ -238,4 +243,3 @@ def choose_unique_reserves(
             )
         )
     return ReplacementResult(matches=tuple(matches), diagnostics=tuple(diagnostics))
-

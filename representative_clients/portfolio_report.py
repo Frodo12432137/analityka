@@ -27,11 +27,12 @@ class BranchOutput:
     legacy_excluded: int
     eligible_clients: int
     target_clients: int
+    quality: Mapping[str, pd.DataFrame] | None = None
 
 
 def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
     selected_parts = [selected_frame(output.selection) for output in outputs]
-    balance_parts = [balance_frame(output.selection) for output in outputs]
+    balance_parts = [output.quality["Bilans"] if output.quality else balance_frame(output.selection) for output in outputs]
     solver_parts = [diagnostics_frame(output.selection) for output in outputs]
     replacement_rows = []
     replacement_diagnostics = []
@@ -103,6 +104,10 @@ def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
                     if group_diags
                     else None
                 ),
+                "kompletny_wybor_OSD": output.selection.selected_count == output.target_clients,
+                "komplet_zastepcow": len(output.replacements.matches) == output.target_clients,
+                "ocena_testowa": "Test na odłożonych dniach" if output.quality and
+                    "Test poza doborem" in output.quality["Reprezentatywnosc"]["zakres"].values else "Brak testu poza doborem",
             }
         )
     frames = {
@@ -114,6 +119,10 @@ def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
         "Solver": pd.concat(solver_parts, ignore_index=True),
         "Lejek_danych": pd.DataFrame(funnel_rows),
     }
+    for name in ("Reprezentatywnosc", "Jakosc_dni_godzin", "Podmiany_pojedyncze"):
+        parts = [output.quality[name] for output in outputs if output.quality and not output.quality[name].empty]
+        if parts:
+            frames[name] = pd.concat(parts, ignore_index=True)
     return frames
 
 
@@ -141,13 +150,19 @@ def _mail_text(outputs: Sequence[BranchOutput], total_target: int) -> str:
         "profili klientów, z zachowaniem limitów wag i udziału pojedynczego PPE. "
         f"Solver zakończył w zadanej tolerancji luki MIP w {optimal} z {group_count} grup "
         "(szczegółowe luki i statusy w arkuszu Solver).\n\n"
-        f"Dla wszystkich {selected} klientów podstawowych dobrano {reserves} "
-        "różnych zastępców (relacja 1:1) wyłącznie spośród PPE z aktualną zgodą. "
+        f"Liczba zapisanych klientów podstawowych: {selected}; liczba różnych zastępców: {reserves}. "
+        + ("Dobór zastępców jest kompletny dla zapisanych klientów. " if selected == reserves else
+           "Dobór zastępców NIE JEST kompletny; ten zapis nie stanowi gotowej listy par. ") +
+        "Zastępcy pochodzą wyłącznie spośród PPE z aktualną zgodą. "
         "Zastępcy zostali przypisani wspólnie w obrębie OSD z krótkich list podobnych "
         "profili, minimalizując sumę względnych błędów L1 podmian na tych listach. "
         "Nie dowodzono optymalności względem wszystkich możliwych par. "
         "Szczegółowe wyniki, lejek danych, statusy "
-        "solvera i wpływ podmian znajdują się w załączonym skoroszycie."
+        "solvera i wpływ podmian znajdują się w załączonym skoroszycie. "
+        "Każda grupa osobno odtwarza cały bilans oddziału; wag czterech grup nie należy sumować. "
+        "Błąd podmiany wszystkich klientów jest scenariuszem innym niż podmiana jednej osoby. "
+        "Ocena na danych użytych do doboru jest dopasowaniem historycznym. "
+        "Tylko wiersze oznaczone jako test poza doborem dotyczą dni niewykorzystanych przez solver ani dobór zastępców."
     )
 
 
@@ -164,6 +179,7 @@ def _style_workbook(workbook: object) -> None:
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
+            sheet.row_dimensions[1].height = 46
         for column_cells in sheet.iter_cols(
             min_row=1, max_row=min(sheet.max_row, 200), max_col=sheet.max_column
         ):
@@ -172,6 +188,51 @@ def _style_workbook(workbook: object) -> None:
                 max(10, max(len(str(cell.value or "")) for cell in column_cells) + 2),
             )
             sheet.column_dimensions[column_cells[0].column_letter].width = width
+        headers = [cell.value for cell in sheet[1]]
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                header = str(headers[cell.column - 1] or "")
+                if isinstance(cell.value, float):
+                    cell.number_format = "0.0%" if ("wzgledny" in header or header == "mip_gap") else "#,##0.00"
+                elif isinstance(cell.value, int) and not isinstance(cell.value, bool):
+                    cell.number_format = "#,##0"
+                if cell.data_type == "f":
+                    # Identyfikatory i tekst ze źródeł mają pozostać tekstem, nigdy formułami.
+                    cell.data_type = "s"
+
+
+def _add_charts(workbook) -> None:
+    from openpyxl.chart import LineChart, Reference
+    source = workbook["Bilans"]
+    if source.max_column < 10 or source.max_row < 2:
+        return
+    sheet = workbook.create_sheet("Wykresy")
+    sheet["A1"] = "Historia i model; każda grupa osobno odtwarza cały oddział. Wykres pokazuje do 1000 pierwszych okresów grupy; metryki obejmują wszystkie."
+    sheet["A1"].alignment = __import__("openpyxl").styles.Alignment(wrap_text=True)
+    sheet.column_dimensions["A"].width = 120
+    sheet.row_dimensions[1].height = 34
+    starts = []
+    previous = None
+    for row in range(2, source.max_row + 1):
+        key = (source.cell(row, 1).value, source.cell(row, 2).value)
+        if key != previous:
+            starts.append((row, key))
+            previous = key
+    for index, (start, key) in enumerate(starts):
+        end = min(start + 999, starts[index + 1][0] - 1 if index + 1 < len(starts) else source.max_row)
+        chart = LineChart()
+        chart.title = f"{key[0]} — {key[1]}"
+        chart.y_axis.title = "Bilans w jednostce danych źródłowych"
+        chart.x_axis.title = "Data / godzina"
+        chart.height, chart.width = 9, 25
+        chart.legend.position = "b"
+        for column, title in ((5, "Historia"), (6, "Model")):
+            chart.add_data(Reference(source, min_col=column, min_row=start, max_row=end))
+            from openpyxl.chart.series import SeriesLabel
+            chart.series[-1].tx = SeriesLabel(v=title)
+        chart.set_categories(Reference(source, min_col=10, min_row=start, max_row=end))
+        chart.x_axis.tickLblSkip = max(1, (end - start + 1) // 8)
+        sheet.add_chart(chart, f"A{3 + index * 19}")
 
 
 def write_portfolio_workbook(
@@ -182,6 +243,7 @@ def write_portfolio_workbook(
     overwrite: bool = False,
     partial: bool = False,
     run_metadata: Mapping[str, object] | None = None,
+    allocation_plan: dict | None = None,
 ) -> Path:
     if not outputs:
         raise ValueError("Brak wyników do zapisania.")
@@ -190,6 +252,17 @@ def write_portfolio_workbook(
         raise FileExistsError(f"Plik {target} już istnieje.")
     target.parent.mkdir(parents=True, exist_ok=True)
     frames = _frames(outputs)
+    if allocation_plan:
+        current = {canonical_branch(item.selection.branch): item for item in outputs}
+        frames["Plan_podzialu"] = pd.DataFrame([
+            {"OSD": BRANCH_LABELS[key], "klienci_w_planie": row["target"], "zastepcy_w_planie": row["target"],
+             "kandydaci_przy_utworzeniu": row["eligible"],
+             "zapisani_w_tym_raporcie": current[key].selection.selected_count if key in current else 0,
+             "status_w_tym_raporcie": ("Komplet par" if len(current[key].replacements.matches) == row["target"] else "Niekompletny")
+                 if key in current else "Poza tym raportem",
+             "plan_id": allocation_plan["plan_id"]}
+            for key, row in allocation_plan["branches"].items()
+        ])
     oversized = {
         name: len(frame) + 1
         for name, frame in frames.items()
@@ -224,18 +297,19 @@ def write_portfolio_workbook(
                         len(outputs),
                         "Wyłącznie Kod PP Aktualny z pliku zgód, zgodny z OSD",
                         "Jeden unikalny zastępca na klienta, w tym samym OSD",
-                        "CZĘŚCIOWY — tylko ukończony OSD, nie cały portfel" if partial else "Pełny przebieg wskazanych OSD",
+                        "CZĘŚCIOWY — sprawdź kompletność wyboru i zastępców w Podsumowaniu" if partial else "Pełny przebieg wskazanych OSD",
                         *(run_metadata or {}).values(),
                     ],
                 }
             ).to_excel(writer, sheet_name="Konfiguracja", index=False)
             mail_text = _mail_text(outputs, total_target)
             if partial:
-                mail_text = "RAPORT CZĘŚCIOWY: tylko ukończony OSD. Nie jest pełnym wynikiem wyboru dla wszystkich OSD.\n\n" + mail_text
+                mail_text = "RAPORT CZĘŚCIOWY: obejmuje zapisane grupy/OSD. Kompletność wyboru i zastępców podano w Podsumowaniu.\n\n" + mail_text
             pd.DataFrame(
                 {"Tekst do maila (bez identyfikatorów PPE)": mail_text.split("\n")}
             ).to_excel(writer, sheet_name="Tekst_do_maila", index=False)
             _style_workbook(writer.book)
+            _add_charts(writer.book)
         if overwrite:
             os.replace(temporary, target)
         else:

@@ -544,13 +544,16 @@ def solve_group(
 
     time_limit = config.time_limit_seconds
     if time_limit_provider is not None:
-        time_limit = min(time_limit, time_limit_provider())
+        provided_limit = time_limit_provider()
+        if provided_limit is not None:
+            time_limit = provided_limit if time_limit is None else min(time_limit, provided_limit)
     options = {
-        "time_limit": float(time_limit),
         "mip_rel_gap": float(config.mip_relative_gap),
         "disp": bool(config.solver_display),
         "presolve": True,
     }
+    if time_limit is not None:
+        options["time_limit"] = float(time_limit)
     started = time.monotonic()
     result = milp(
         objective,
