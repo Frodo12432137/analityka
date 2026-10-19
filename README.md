@@ -6,8 +6,9 @@ Kod nie wymaga GAMS. Solver HiGHS jest dostępny przez SciPy.
 
 Obsługuje także nową listę zgód z kolumnami **Numer PPE** i **Właściwy PPE**:
 poprawiony kod ma pierwszeństwo, a OSD jest przypisywane z pierwotnego pliku zgód.
-Stary plik służy wyłącznie do mapowania. Dla małej puli (np. 270 PPE) można
-ustawić cel poniżej 500 i wyłączyć zastępców. Szczegółowe ustawienia opisano
+Stary plik służy wyłącznie do mapowania. Po jego wskazaniu liczba PPE wynika
+automatycznie z nowej listy i dostępnych profili, bez ręcznego limitu i bez
+rezerwowania klientów na zastępców. Szczegółowe ustawienia opisano
 w [instrukcji nowych zgód](START_KLIENCI_REPREZENTATYWNI.md#nowe-zgody-lista-ppe-bez-osd-np-270-punktów).
 
 ## Uruchomienie

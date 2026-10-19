@@ -13,18 +13,23 @@ W zakładce **Dane i plan** wskaż dwa pliki:
 2. **Pierwotny plik zgód — mapowanie OSD** — stary eksport zawierający
    `Kod PP Aktualny` i `OSD Nazwa - PP Aktualny`. Służy tylko do odczytu OSD.
 
-Wybierz nową nazwę planu, np. `Plan_270.json`. Dodaj modele wszystkich 8 OSD
-do przygotowania pierwszego podziału. W zakładce **Oddziały i czas** zaznacz
-**Wszystkie OSD**, ustaw cel np. **270** i odznacz dobór unikalnego zastępcy,
-jeśli chcesz wykorzystać całą pulę do odtworzenia bilansu. Zakres celu wynosi
-1–1100; nie może przekraczać liczby dostępnych PPE z profilami po wykluczeniach.
-Samo 270 wierszy zgód nie gwarantuje 270 dostępnych, unikalnych punktów.
+Po wskazaniu mapowania OSD program sam włącza **liczbę PPE z Excela**.
+Nie wpisuj 270 ani innego limitu: obliczenia obejmą wszystkie aktualne,
+unikalne PPE z profilami po wykluczeniach. Zastępcy są automatycznie wyłączeni,
+a pola ręcznego celu i zastępców nieaktywne. Nie ma limitu liczby klientów.
+
+Dodaj modele wszystkich 8 OSD do przygotowania pierwszego planu; wszystkie
+oddziały są domyślnie zaznaczone. Domyślna nazwa nowego planu zmienia się na
+`Plan_aktualne_zgody.json`. Dla zmienionej listy użyj nowej nazwy planu,
+jeżeli pod tą nazwą zapisano już inną pulę. Liczba w planie jest wynikiem
+odczytu danych, a nie limitem narzuconym przez użytkownika.
 
 Ustaw **1 grupę**, jeśli PPE danego OSD mają wspólnie odtwarzać jego bilans,
 albo zachowaj 4 grupy do porównania z wcześniejszą konfiguracją. Porównywane
 przebiegi powinny mieć tę samą liczbę grup i pozostałe ustawienia.
 Najpierw wybierz **Sprawdzenie danych**, potem **Pełne obliczenia**.
-Początkowe ustawienia pozostają 1100 klientów, 4 grupy, zastępcy włączeni.
+Liczba grup pozostaje domyślnie 4. Ręczny cel i dobór zastępców są dostępne
+w dotychczasowym trybie bez dodatkowego pliku mapowania.
 
 Kody muszą być tekstem. Program zatrzyma odczyt przy brakującym mapowaniu
 OSD lub sprzecznym przypisaniu. Duplikaty zostaną policzone i usunięte.
@@ -60,6 +65,9 @@ wybrany inny Python, zmień go raz na powyższy. Program poda w terminalu
 konkretną komendę instalacji, jeżeli w wybranym interpreterze brakuje bibliotek.
 
 ## 2. Uruchomienie strzałką
+
+Poniżej opisano dotychczasowy tryb ręcznego doboru. Dla nowej listy bez OSD
+zastosuj instrukcję na początku dokumentu — liczba PPE jest automatyczna.
 
 1. Otwórz w edytorze plik **uruchom_klientow_reprezentatywnych.py**.
 2. Kliknij **▶ Run Python File in Terminal** w prawym górnym rogu.

@@ -92,7 +92,7 @@ class SmallPortfolioTests(unittest.TestCase):
             sources = {key: [(root / f"{key}.xlsx", key)] for key in BRANCH_ORDER}
             plan = create_plan(domains, 500, sources, root / "old.xlsx")
             plan["version"] = 1
-            for key in ("with_reserves", "osd_mapping", "plan_id"):
+            for key in ("with_reserves", "osd_mapping", "all_consented", "plan_id"):
                 del plan[key]
             plan["plan_id"] = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()[:16]
             path = root / "legacy_plan.json"
@@ -141,7 +141,8 @@ class SmallPortfolioTests(unittest.TestCase):
                 self.assertEqual(main(["--allocation-plan", str(plan), "--consents", str(current),
                                        "--no-reserves", "--validate-only"]), 0)
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                main(["--allocation-plan", str(plan), "--consents", str(current), "--validate-only"])
+                main(["--allocation-plan", str(plan), "--consents", str(current),
+                      "--total-clients", "270", "--validate-only"])
 
     def test_empty_osd_is_explicitly_unassessed_in_report(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -177,7 +178,7 @@ class SmallPortfolioTests(unittest.TestCase):
                 main([*args, "--osd-mapping", str(mapping), "--output", str(mapping), "--overwrite"])
             self.assertEqual(mapping.read_bytes(), original)
 
-    def test_launcher_passes_mapping_small_target_groups_and_reserve_mode(self):
+    def test_launcher_uses_excel_count_without_reading_manual_target(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             current, old, source = (root / name for name in ("new.xlsx", "old.xlsx", "model.xlsx"))
@@ -185,13 +186,66 @@ class SmallPortfolioTests(unittest.TestCase):
                 path.touch()
             arguments, _ = build_run_arguments(
                 sources=[source], consents=current, destination=root, plan_path=root / "plan.json",
-                total=270, branches=["Białystok"], mode="validate", time_mode=TIME_MODES[1],
-                osd_mapping=old, with_reserves=False, groups=1,
+                total="Automatycznie z Excela", branches=["Białystok"], mode="validate", time_mode=TIME_MODES[1],
+                osd_mapping=old, with_reserves=True, groups=1,
             )
             self.assertIn("--no-reserves", arguments)
             self.assertEqual(arguments[arguments.index("--osd-mapping") + 1], str(old.resolve()))
-            self.assertEqual(arguments[arguments.index("--total-clients") + 1], "270")
+            self.assertNotIn("--total-clients", arguments)
+            self.assertIn("--all-consented", arguments)
             self.assertEqual(arguments[arguments.index("--groups") + 1], "1")
+
+    def test_new_mapping_automatically_uses_actual_count_and_preserves_error_metrics(self):
+        for per_branch in (2, 3):
+            with self.subTest(per_branch=per_branch), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                args = make_portfolio(root, eligible_per_branch=per_branch)[:-2]
+                codes = [f"TEST{branch:02d}{i:05d}" for branch in range(8) for i in range(per_branch)]
+                workbook(root / "new.xlsx", [[code, None] for code in codes])
+                old = args[args.index("--consents") + 1]
+                args[args.index("--consents") + 1] = str(root / "new.xlsx")
+                output = root / "automatic.xlsx"
+                args += ["--osd-mapping", old, "--groups", "1", "--mip-gap", "0"]
+                with redirect_stdout(io.StringIO()), patch("representative_clients.portfolio_cli.choose_unique_reserves") as reserves:
+                    self.assertEqual(main([*args, "--output", str(output)]), 0)
+                    reserves.assert_not_called()
+                    self.assertEqual(main([*args, "--total-clients", str(len(codes)), "--no-reserves",
+                                           "--output", str(root / "manual.xlsx")]), 0)
+                automatic = load_workbook(output, data_only=True)
+                manual = load_workbook(root / "manual.xlsx", data_only=True)
+                try:
+                    self.assertEqual({row["klient"] for row in records(automatic["Wybrani"])}, set(codes))
+                    self.assertEqual(records(automatic["Reprezentatywnosc"]), records(manual["Reprezentatywnosc"]))
+                    self.assertEqual(records(automatic["Bilans"]), records(manual["Bilans"]))
+                finally:
+                    automatic.close()
+                    manual.close()
+
+    def test_automatic_count_above_1100_round_trips_plan_and_selected_branch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = make_portfolio(root, eligible_per_branch=140)[:-2]
+            plan_path = root / "auto.json"
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main([*args, "--all-consented", "--allocation-plan", str(plan_path), "--plan-only"]), 0)
+                plan = load_plan(plan_path)
+                self.assertEqual(plan["total_clients"], 1120)
+                self.assertTrue(plan["all_consented"])
+                self.assertFalse(plan["with_reserves"])
+                self.assertEqual(main(["--consents", str(root / "zgody.xlsx"), "--allocation-plan", str(plan_path),
+                                       "--branches", "Lublin", "--validate-only"]), 0)
+
+    def test_automatic_mode_does_not_reuse_plan_with_smaller_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = make_portfolio(root, total=8, eligible_per_branch=3)
+            plan = root / "subset.json"
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main([*args, "--no-reserves", "--allocation-plan", str(plan), "--plan-only"]), 0)
+            with redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                main(["--consents", str(root / "zgody.xlsx"), "--allocation-plan", str(plan),
+                      "--all-consented", "--validate-only"])
+            self.assertIn("ogranicza liczbę PPE", errors.getvalue())
 
 
 if __name__ == "__main__":

@@ -110,7 +110,7 @@ def choose_run(project_dir):
     branch_list.grid(sticky="ew", pady=6)
     for key in BRANCH_ORDER:
         branch_list.insert(END, BRANCH_LABELS[key] + " — przydział po przygotowaniu planu")
-    branch_list.selection_set(0)
+    branch_list.selection_set(0, END)
     buttons = ttk.Frame(run_panel)
     buttons.grid(sticky="w")
     ttk.Button(buttons, text="Wszystkie OSD", command=lambda: branch_list.selection_set(0, END)).pack(side="left")
@@ -127,9 +127,32 @@ def choose_run(project_dir):
               ("Liczba niezależnych grup na OSD", groups))
     for row, (label, variable) in enumerate(fields, start=2):
         ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Entry(settings, textvariable=variable, width=24).grid(row=row, column=1, sticky="w", padx=8)
-    ttk.Checkbutton(run_panel, text="Dobierz unikalnego zastępcę dla każdego klienta (wymaga podwójnej puli PPE)",
-                    variable=with_reserves).grid(sticky="w")
+        entry = ttk.Entry(settings, textvariable=variable, width=24)
+        entry.grid(row=row, column=1, sticky="w", padx=8)
+        if variable is total:
+            total_entry = entry
+    reserve_toggle = ttk.Checkbutton(run_panel, text="Dobierz unikalnego zastępcę dla każdego klienta (wymaga podwójnej puli PPE)",
+                                    variable=with_reserves)
+    reserve_toggle.grid(sticky="w")
+    pool_note = StringVar()
+    ttk.Label(run_panel, textvariable=pool_note, wraplength=800).grid(sticky="w", pady=4)
+
+    def mapping_mode(*_):
+        automatic = bool(osd_mapping.get().strip())
+        total_entry.configure(state="disabled" if automatic else "normal")
+        reserve_toggle.configure(state="disabled" if automatic else "normal")
+        if automatic:
+            total.set("Automatycznie z Excela")
+            with_reserves.set(False)
+            pool_note.set("Nowa lista: dopasowanie całej dostępnej puli PPE, bez limitu liczby i bez zastępców.")
+            if Path(plan_path.get()) == output_dir / "Plan_1100.json":
+                plan_path.set(str(output_dir / "Plan_aktualne_zgody.json"))
+        else:
+            pool_note.set("")
+            if not total.get().isdigit():
+                total.set("1100")
+
+    osd_mapping.trace_add("write", mapping_mode)
     ttk.Label(run_panel, wraplength=800, text="Termin obejmuje odczyt, solver, zastępców i raport. Czas jest dzielony między grupy. "
               "Bez limitu oznacza również brak ograniczenia 24 h. Komputer musi pozostać włączony i nieusypiany.").grid(sticky="w", pady=8)
 
@@ -170,6 +193,7 @@ def choose_run(project_dir):
             plan_note.set(f"Plan {plan['plan_id']}: {plan['total_clients']} podstawowych; "
                           f"zastępcy: {'włączeni' if with_reserves.get() else 'wyłączeni'}. "
                           "Przy pustej liście plików program użyje zapisanych ścieżek wybranych OSD.")
+            mapping_mode()
         except (ValueError, OSError) as exc:
             messagebox.showerror("Plan podziału", str(exc), parent=root)
 

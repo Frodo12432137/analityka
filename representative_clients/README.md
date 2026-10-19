@@ -20,12 +20,18 @@ Brak dopasowania poprawionego PPE lub sprzeczne OSD zatrzymują import.
 Nie następuje powrót do błędnego kodu z kolumny A. Dotychczasowy format zgód
 z OSD nadal działa bez dodatkowego pliku.
 
-Cel wyboru można ustawić od **1 do 1100**, w granicach dostępnych danych.
-Przy małej puli można odznaczyć **Dobierz unikalnego zastępcę**
-(`--no-reserves`), aby nie odkładać połowy PPE na zastępców. Liczba 270
-oznacza wtedy dokładnie 270 podstawowych, o ile tyle unikalnych PPE ma
-mapowanie OSD, profile i nie jest wykluczonych. Zastępcy są domyślnie włączeni;
-domyślny cel pozostaje 1100. Ustawienia należy zmienić przed uruchomieniem.
+Po wskazaniu pliku mapowania OSD okno automatycznie dopasowuje **całą aktualną
+pulę PPE z dostępnymi profilami po wykluczeniach**. Liczba wynika z danych;
+nie wpisuje się 270 ani innego celu. Nie obowiązuje limit liczby klientów,
+a zastępcy są wyłączeni. Pole ręcznego celu i przełącznik zastępców są wtedy
+nieaktywne. Duplikaty nie zwiększają liczby punktów. Raport pokazuje liczby
+PPE z nowej listy, występujących w źródłach oraz pozostałych po wykluczeniach.
+
+CLI działa tak samo po podaniu `--osd-mapping` bez `--total-clients`.
+Tryb można też włączyć jawnie przez `--all-consented`, również dla starego
+formatu zgód z OSD. W tym trybie nie podaje się ręcznej liczby klientów.
+Dotychczasowy ręczny dobór 1–1100 i opcjonalnych zastępców pozostaje dostępny
+przez `--total-clients`; okno używa go przy braku pliku mapowania.
 
 Liczbę grup można podać w oknie lub przez `--groups`. Jedna grupa dopasowuje
 dostępne PPE danego OSD wspólnie. Domyślne cztery grupy są czterema osobnymi
@@ -34,7 +40,8 @@ identyczną liczbę grup, okres, bilans, ograniczenia wag i ustawienia solvera.
 Nie zakładamy z góry pogorszenia — raport zawiera MAE, RMSE i błędy względne.
 
 Dla zmienionej listy i trybu zastępców utwórz **nowy plik planu**, np.
-`Plan_270.json`. Plan zapisuje tryb zastępców i ścieżkę mapowania, a ponowne
+`Plan_aktualne_zgody.json`. Plan zapisuje tryb całej puli, rzeczywistą liczbę
+klientów, tryb zastępców i ścieżkę mapowania, a ponowne
 uruchomienie sprawdza zgodność dopuszczonych PPE. Bez zastępców OSD z zerową
 pulą dostaje przydział 0; raport `Pokrycie_OSD` i opis wyniku wyraźnie oznaczają,
 że jego bilans nie jest oceniony. Nie jest to wynik dla pełnego portfela.
@@ -46,13 +53,12 @@ Przykład po dodaniu wszystkich źródeł `--input`:
   --input "Dane_in\Modele\Model_wszystkie_OSD.xlsx" `
   --consents "Dane_in\Zgody\Nowe_zgody.xlsx" `
   --osd-mapping "Dane_in\Zgody\Pierwotne_zgody.xlsx" `
-  --total-clients 270 --no-reserves --groups 1 `
-  --allocation-plan "Dane_out\Plan_270.json" --validate-full
+  --allocation-plan "Dane_out\Plan_aktualne_zgody.json" --validate-full
 ```
 
 Jeśli źródła są w osobnych plikach, powtórz `--input` dla każdego.
 Po kontroli zastąp `--validate-full` parametrem
-`--output "Dane_out\Wyniki_270.xlsx"`. Do niezależnej oceny można dodać
+`--output "Dane_out\Wyniki_aktualnej_puli.xlsx"`. Do niezależnej oceny można dodać
 `--holdout-days N`; muszą zostać co najmniej dwa dni do dopasowania.
 
 ## Finalny tryb 8 OSD — zalecane uruchomienie
@@ -65,6 +71,7 @@ Cały przebieg ma limit **24 h**, łącznie z odczytem i zapisem. Domyślnie gru
 ma do 30 min; program może skończyć wcześniej. Ukończone OSD są zapisywane
 osobno w folderze *_czesci_*. Pełny wynik w tym czasie nie jest gwarantowany.
 
+Poniższy opis dotyczy ręcznego doboru bez automatycznego trybu całej puli.
 Finalny przebieg łączy model główny z logiką zastępców i aktualnym plikiem
 zgód. Domyślnie wybiera dokładnie **1100 klientów podstawowych** (ustawialne
 od 1 do 1100, w granicach dostępnej puli) łącznie dla:

@@ -17,9 +17,6 @@ def build_run_arguments(*, sources, consents, destination, plan_path, total, bra
                         mode, time_mode, hours="12", finish_by="", group_minutes="",
                         holdout_days="0", shortlist="128", now=None, osd_mapping="",
                         with_reserves=True, groups="4"):
-    total = int(total)
-    if not 1 <= total <= 1100:
-        raise ValueError("Cel całego portfela musi należeć do przedziału 1–1100.")
     groups = int(groups)
     if groups < 1:
         raise ValueError("Liczba grup musi być dodatnia.")
@@ -30,11 +27,20 @@ def build_run_arguments(*, sources, consents, destination, plan_path, total, bra
     if plan.suffix.lower() != ".json":
         raise ValueError("Plan podziału musi mieć rozszerzenie .json.")
     existing = load_plan(plan) if plan.is_file() else None
-    if existing and total != existing["total_clients"]:
+    osd_mapping = osd_mapping or (existing or {}).get("osd_mapping")
+    all_consented = bool(osd_mapping or (existing or {}).get("all_consented"))
+    if all_consented:
+        with_reserves = False
+        if existing and any(row["target"] != row["eligible"] for row in existing["branches"].values()):
+            raise ValueError("Zapisany plan ogranicza pulę PPE. Wskaż nowy plan dla aktualnej listy.")
+    else:
+        total = int(total)
+        if not 1 <= total <= 1100:
+            raise ValueError("Cel całego portfela musi należeć do przedziału 1–1100.")
+    if existing and not all_consented and total != existing["total_clients"]:
         raise ValueError("Cel różni się od zapisanego planu. Dla nowego celu wskaż nowy plik planu.")
     if existing and with_reserves != existing.get("with_reserves", True):
         raise ValueError("Tryb zastępców różni się od zapisanego planu. Wskaż nowy plan albo ustaw zgodny tryb.")
-    osd_mapping = osd_mapping or (existing or {}).get("osd_mapping")
     paths = [Path(path).expanduser().resolve() for path in sources]
     if not paths and not existing:
         raise ValueError("Dodaj pliki wszystkich 8 OSD do przygotowania pierwszego planu.")
@@ -46,7 +52,11 @@ def build_run_arguments(*, sources, consents, destination, plan_path, total, bra
     for path in paths:
         arguments.extend(("--input", str(path)))
     arguments.extend(("--consents", str(Path(consents).expanduser().resolve()),
-                      "--total-clients", str(total), "--allocation-plan", str(plan)))
+                      "--allocation-plan", str(plan)))
+    if all_consented:
+        arguments.append("--all-consented")
+    else:
+        arguments.extend(("--total-clients", str(total)))
     if osd_mapping:
         arguments.extend(("--osd-mapping", str(Path(osd_mapping).expanduser().resolve())))
     if not with_reserves:
