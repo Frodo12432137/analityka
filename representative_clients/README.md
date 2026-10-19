@@ -16,8 +16,13 @@ Wskaż dodatkowo **pierwotny plik zgód — mapowanie OSD** (CLI: `--osd-mapping
 z kolumnami `Kod PP Aktualny` i `OSD Nazwa - PP Aktualny`.
 Stary plik służy wyłącznie do przypisania OSD: tylko PPE z nowej listy są
 dopuszczone do modelu. Program usuwa powtórzenia i podaje ich liczbę.
-Brak dopasowania poprawionego PPE lub sprzeczne OSD zatrzymują import.
-Nie następuje powrót do błędnego kodu z kolumny A. Dotychczasowy format zgód
+PPE bez dopasowania OSD są pomijane, a program kontynuuje dla pozostałych.
+Komunikat i dziennik podają liczbę pominiętych punktów; raport zapisuje ją
+w `Konfiguracja` i opisie wyniku oraz podaje numery wierszy w `Zgody_bez_OSD`.
+Duplikaty pominiętego PPE są liczone jako jeden brak mapowania.
+Sprzeczne OSD nadal zatrzymują import. Nie następuje powrót do błędnego kodu
+z kolumny A. Jeśli żaden PPE nie ma OSD, obliczenia nie mogą wystartować.
+Dotychczasowy format zgód
 z OSD nadal działa bez dodatkowego pliku.
 
 Po wskazaniu pliku mapowania OSD okno automatycznie dopasowuje **całą aktualną

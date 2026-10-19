@@ -82,6 +82,7 @@ class ConsentIndex:
     source_rows: int
     duplicate_rows: int
     corrected_rows: int = 0
+    unmatched_rows: Tuple[int, ...] = ()
 
     @property
     def unique_count(self) -> int:
@@ -190,7 +191,7 @@ def load_consent_workbook(
     """Aktualna lista wyznacza zgodę; stary eksport służy tylko do mapowania OSD.
 
     W nowym układzie niepusta kolumna korekty ma bezwzględne pierwszeństwo.
-    Błędna korekta zatrzymuje import, bez powrotu do nieaktualnego kodu A.
+    PPE bez mapowania OSD jest pomijany, bez powrotu do nieaktualnego kodu A.
     Identyfikatory muszą być tekstem, aby zachować wszystkie cyfry i zera.
     """
     from openpyxl import load_workbook
@@ -246,12 +247,12 @@ def load_consent_workbook(
                 missing_rows.append(number)
             else:
                 by_branch[owners[code]].add(code)
-        if missing_rows:
-            raise ValueError(f"Brak przypisania OSD w pierwotnym pliku dla {len(missing_rows)} PPE. "
-                             f"Wiersze nowej listy (pierwsze 10): {missing_rows[:10]}. Popraw mapowanie przed obliczeniami.")
         if not seen:
             raise ValueError("Plik zgód nie zawiera żadnego PPE.")
+        if not any(by_branch.values()):
+            raise ValueError(f"Pominięto {len(missing_rows)} PPE bez przypisania OSD. "
+                             "Nie pozostał żaden PPE z przypisanym OSD do obliczeń.")
         return ConsentIndex({key: frozenset(values) for key, values in by_branch.items()},
-                            source_rows, duplicates, corrected_rows)
+                            source_rows, duplicates, corrected_rows, tuple(missing_rows))
     finally:
         workbook.close()

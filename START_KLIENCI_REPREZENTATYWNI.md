@@ -31,8 +31,11 @@ Najpierw wybierz **Sprawdzenie danych**, potem **Pełne obliczenia**.
 Liczba grup pozostaje domyślnie 4. Ręczny cel i dobór zastępców są dostępne
 w dotychczasowym trybie bez dodatkowego pliku mapowania.
 
-Kody muszą być tekstem. Program zatrzyma odczyt przy brakującym mapowaniu
-OSD lub sprzecznym przypisaniu. Duplikaty zostaną policzone i usunięte.
+Kody muszą być tekstem. PPE bez mapowania OSD zostaną pominięte, a program
+przejdzie dalej z pozostałymi. Liczba pominiętych będzie widoczna w terminalu,
+dzienniku i raporcie; arkusz `Zgody_bez_OSD` wskaże wiersze nowej listy.
+Sprzeczne przypisanie OSD nadal zatrzymuje import. Jeśli nie zostanie żaden
+PPE z OSD, nie będzie danych do obliczeń. Duplikaty są liczone i usuwane.
 Raport `Pokrycie_OSD` pokazuje liczbę PPE na kolejnych etapach i oddziały
 bez kandydatów. Ich bilans nie jest oceniany, co jest zaznaczone w opisie wyniku.
 Wyniki jakości znajdują się w `Reprezentatywnosc` i `Jakosc_dni_godzin`.

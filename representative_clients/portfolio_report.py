@@ -272,6 +272,12 @@ def write_portfolio_workbook(
     target.parent.mkdir(parents=True, exist_ok=True)
     frames = _frames(outputs)
     run_metadata = dict(run_metadata or {})
+    unmatched_rows = run_metadata.pop("wiersze_zgod_bez_OSD", ())
+    if unmatched_rows:
+        frames["Zgody_bez_OSD"] = pd.DataFrame({
+            "wiersz_aktualnego_pliku_zgod": unmatched_rows,
+            "powod_pominiecia": "Brak przypisania OSD w pierwotnym pliku zgód",
+        })
     coverage = run_metadata.pop("pokrycie_OSD", None)
     if coverage:
         frames["Pokrycie_OSD"] = pd.DataFrame([{"OSD": key, **row} for key, row in coverage.items()])
@@ -327,6 +333,9 @@ def write_portfolio_workbook(
                 }
             ).to_excel(writer, sheet_name="Konfiguracja", index=False)
             mail_text = _mail_text(outputs, total_target)
+            if run_metadata.get("PPE_pominiete_brak_OSD"):
+                mail_text = (f"Pominięto {run_metadata['PPE_pominiete_brak_OSD']} PPE bez przypisania OSD; "
+                             "dopasowanie dotyczy pozostałej dostępnej puli.\n\n" + mail_text)
             if run_metadata.get("OSD_bez_kandydatow"):
                 mail_text = ("Nie oceniono pełnego portfela. OSD bez kandydatów: "
                              + str(run_metadata["OSD_bez_kandydatow"]) + ".\n\n" + mail_text)

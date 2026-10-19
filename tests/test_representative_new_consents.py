@@ -52,9 +52,20 @@ class NewConsentTests(unittest.TestCase):
     def test_unmatched_correction_never_falls_back_to_original(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            workbook(root / "old.xlsx", [["001", "Lublin"], ["002", "Warszawa"]], OLD_HEADERS)
+            workbook(root / "new.xlsx", [["001", "999"], ["002", None], ["999", None]])
+            index = load_consent_workbook(root / "new.xlsx", root / "old.xlsx")
+            self.assertFalse(index.by_branch["lublin"])
+            self.assertEqual(index.by_branch["warszawa"], frozenset({"002"}))
+            self.assertEqual(index.unmatched_rows, (2,))
+            self.assertEqual(index.duplicate_rows, 1)
+
+    def test_all_unmapped_points_report_no_remaining_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
             workbook(root / "old.xlsx", [["001", "Lublin"]], OLD_HEADERS)
-            workbook(root / "new.xlsx", [["001", "999"]])
-            with self.assertRaisesRegex(ValueError, "Brak przypisania OSD"):
+            workbook(root / "new.xlsx", [["999", None]])
+            with self.assertRaisesRegex(ValueError, "Nie pozostał żaden PPE"):
                 load_consent_workbook(root / "new.xlsx", root / "old.xlsx")
 
     def test_invalid_effective_code_and_conflicting_mapping_stop_import(self):
@@ -85,6 +96,37 @@ class NewConsentTests(unittest.TestCase):
 
 
 class SmallPortfolioTests(unittest.TestCase):
+    def test_thirteen_unmapped_points_are_skipped_in_plan_and_full_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = make_portfolio(root, eligible_per_branch=34)[:-2]
+            codes = [f"TEST{branch:02d}{i:05d}" for branch in range(8) for i in range(34)][:257]
+            missing = [f"UNMAPPED{i:03d}" for i in range(13)]
+            current = root / "new.xlsx"
+            workbook(current, [[code, None] for code in codes + missing])
+            old = args[args.index("--consents") + 1]
+            args[args.index("--consents") + 1] = str(current)
+            plan_path, output = root / "plan.json", root / "report.xlsx"
+            with redirect_stdout(io.StringIO()) as stdout:
+                self.assertEqual(main([*args, "--osd-mapping", old,
+                                       "--allocation-plan", str(plan_path), "--plan-only"]), 0)
+            self.assertIn("Pominięto 13 PPE", stdout.getvalue())
+            self.assertEqual(load_plan(plan_path)["total_clients"], 257)
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["--consents", str(current), "--allocation-plan", str(plan_path),
+                                       "--groups", "1", "--output", str(output)]), 0)
+            book = load_workbook(output, data_only=True)
+            try:
+                self.assertEqual({row["klient"] for row in records(book["Wybrani"])}, set(codes))
+                skipped = records(book["Zgody_bez_OSD"])
+                self.assertEqual([row["wiersz_aktualnego_pliku_zgod"] for row in skipped], list(range(259, 272)))
+                config = {row["parametr"]: row["wartosc"] for row in records(book["Konfiguracja"])}
+                self.assertEqual(config["PPE_pominiete_brak_OSD"], 13)
+                mail = " ".join(str(row[0]) for row in book["Tekst_do_maila"].iter_rows(values_only=True))
+                self.assertIn("Pominięto 13 PPE", mail)
+            finally:
+                book.close()
+
     def test_existing_version_one_plan_remains_readable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

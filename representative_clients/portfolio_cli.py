@@ -165,8 +165,12 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
         budget.check()
         print("Wczytywanie aktualnego pliku zgód...", flush=True)
         consents = load_consent_workbook(args.consents, args.osd_mapping)
-        print(f"Zgody: {consents.source_rows} wierszy, {consents.unique_count} unikalnych PPE, "
+        print(f"Zgody: {consents.source_rows} wierszy, {consents.unique_count} unikalnych PPE z OSD, "
               f"{consents.corrected_rows} korekt, {consents.duplicate_rows} duplikatów.", flush=True)
+        if consents.unmatched_rows:
+            print(f"Pominięto {len(consents.unmatched_rows)} PPE bez przypisania OSD w pierwotnym pliku. "
+                  f"Wiersze nowej listy (pierwsze 10): {list(consents.unmatched_rows[:10])}. "
+                  "Kontynuuję dla pozostałych PPE.", flush=True)
         sources = _source_map(args.input)
         needed = selected_keys or BRANCH_ORDER
         missing = [key for key in (needed if plan else BRANCH_ORDER) if key not in sources]
@@ -304,6 +308,8 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                 "liczba_PPE_z_danych": args.all_consented,
                 "plik_aktualnych_zgod": str(args.consents),
                 "plik_mapowania_OSD": str(args.osd_mapping) if args.osd_mapping else "OSD w aktualnych zgodach",
+                "PPE_pominiete_brak_OSD": len(consents.unmatched_rows),
+                "wiersze_zgod_bez_OSD": consents.unmatched_rows,
                 "OSD_bez_kandydatow": ", ".join(BRANCH_LABELS[key] for key in uncovered),
                 "pokrycie_OSD": coverage,
             }
