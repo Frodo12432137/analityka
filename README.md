@@ -4,6 +4,12 @@ Model w Pythonie wybierający domyślnie **1100 klientów podstawowych** oraz
 **1100 unikalnych zastępców**, z raportem wag i jakości dopasowania.
 Kod nie wymaga GAMS. Solver HiGHS jest dostępny przez SciPy.
 
+Obsługuje także nową listę zgód z kolumnami **Numer PPE** i **Właściwy PPE**:
+poprawiony kod ma pierwszeństwo, a OSD jest przypisywane z pierwotnego pliku zgód.
+Stary plik służy wyłącznie do mapowania. Dla małej puli (np. 270 PPE) można
+ustawić cel poniżej 500 i wyłączyć zastępców. Szczegółowe ustawienia opisano
+w [instrukcji nowych zgód](START_KLIENCI_REPREZENTATYWNI.md#nowe-zgody-lista-ppe-bez-osd-np-270-punktów).
+
 ## Uruchomienie
 
 1. Pobierz repozytorium i otwórz cały folder w Visual Studio Code.
@@ -46,5 +52,6 @@ na rzeczywistych skoroszytach źródłowych.
 python -m unittest discover -s tests -p "test_representative*.py" -v
 ```
 
-Wersja pakietu: 1.4. Zweryfikowano 79 testów, w tym oba układy Excela,
-limity czasu, zapis częściowy oraz scenariusze 500 i 1100 par.
+Testy obejmują oba układy profili Excel, limity czasu, zapis częściowy,
+scenariusze 500 i 1100 par oraz małą pulę 270 PPE bez zastępców, korekty PPE,
+mapowanie OSD i brak kandydatów w oddziale.

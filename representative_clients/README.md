@@ -4,6 +4,57 @@ Moduł jest odpowiednikiem matematycznym `Model_dobor_klientow_v8.gms`
 odtworzonym ze zdjęć kodu. Nie wymaga GAMS ani plików GDX. Korzysta z
 otwartego solvera HiGHS dostępnego przez SciPy.
 
+## Nowa lista zgód bez OSD i mała pula (np. 270 PPE)
+
+Aktualna lista może zawierać nagłówki `Numer PPE` oraz
+`Właściwy PPE (w przypadku błędów w kolumnie A)` w pierwszych 30 wierszach
+dowolnego arkusza. Niepusta korekta ma pierwszeństwo; w przeciwnym razie
+używany jest `Numer PPE`. Kody zapisuj jako tekst, z zachowaniem zer
+początkowych. Liczb ani formuł Excel w używanym kodzie program nie przyjmuje.
+
+Wskaż dodatkowo **pierwotny plik zgód — mapowanie OSD** (CLI: `--osd-mapping`),
+z kolumnami `Kod PP Aktualny` i `OSD Nazwa - PP Aktualny`.
+Stary plik służy wyłącznie do przypisania OSD: tylko PPE z nowej listy są
+dopuszczone do modelu. Program usuwa powtórzenia i podaje ich liczbę.
+Brak dopasowania poprawionego PPE lub sprzeczne OSD zatrzymują import.
+Nie następuje powrót do błędnego kodu z kolumny A. Dotychczasowy format zgód
+z OSD nadal działa bez dodatkowego pliku.
+
+Cel wyboru można ustawić od **1 do 1100**, w granicach dostępnych danych.
+Przy małej puli można odznaczyć **Dobierz unikalnego zastępcę**
+(`--no-reserves`), aby nie odkładać połowy PPE na zastępców. Liczba 270
+oznacza wtedy dokładnie 270 podstawowych, o ile tyle unikalnych PPE ma
+mapowanie OSD, profile i nie jest wykluczonych. Zastępcy są domyślnie włączeni;
+domyślny cel pozostaje 1100. Ustawienia należy zmienić przed uruchomieniem.
+
+Liczbę grup można podać w oknie lub przez `--groups`. Jedna grupa dopasowuje
+dostępne PPE danego OSD wspólnie. Domyślne cztery grupy są czterema osobnymi
+próbami odtworzenia całego bilansu OSD. Do porównania dwóch pul zachowaj
+identyczną liczbę grup, okres, bilans, ograniczenia wag i ustawienia solvera.
+Nie zakładamy z góry pogorszenia — raport zawiera MAE, RMSE i błędy względne.
+
+Dla zmienionej listy i trybu zastępców utwórz **nowy plik planu**, np.
+`Plan_270.json`. Plan zapisuje tryb zastępców i ścieżkę mapowania, a ponowne
+uruchomienie sprawdza zgodność dopuszczonych PPE. Bez zastępców OSD z zerową
+pulą dostaje przydział 0; raport `Pokrycie_OSD` i opis wyniku wyraźnie oznaczają,
+że jego bilans nie jest oceniony. Nie jest to wynik dla pełnego portfela.
+
+Przykład po dodaniu wszystkich źródeł `--input`:
+
+```powershell
+& $python -m representative_clients.portfolio_cli `
+  --input "Dane_in\Modele\Model_wszystkie_OSD.xlsx" `
+  --consents "Dane_in\Zgody\Nowe_zgody.xlsx" `
+  --osd-mapping "Dane_in\Zgody\Pierwotne_zgody.xlsx" `
+  --total-clients 270 --no-reserves --groups 1 `
+  --allocation-plan "Dane_out\Plan_270.json" --validate-full
+```
+
+Jeśli źródła są w osobnych plikach, powtórz `--input` dla każdego.
+Po kontroli zastąp `--validate-full` parametrem
+`--output "Dane_out\Wyniki_270.xlsx"`. Do niezależnej oceny można dodać
+`--holdout-days N`; muszą zostać co najmniej dwa dni do dopasowania.
+
 ## Finalny tryb 8 OSD — zalecane uruchomienie
 
 **Instrukcja VS Code, źródeł, wyników i czasu obliczeń:**
@@ -16,7 +67,7 @@ osobno w folderze *_czesci_*. Pełny wynik w tym czasie nie jest gwarantowany.
 
 Finalny przebieg łączy model główny z logiką zastępców i aktualnym plikiem
 zgód. Domyślnie wybiera dokładnie **1100 klientów podstawowych** (ustawialne
-od 500 do 1100) łącznie dla:
+od 1 do 1100, w granicach dostępnej puli) łącznie dla:
 Białegostoku, Lublina, Łodzi Miasto, Łodzi Teren, Rzeszowa,
 Skarżyska-Kamiennej, Warszawy i Zamościa. Limit jest dzielony proporcjonalnie
 do liczby dostępnych klientów w OSD, z zachowaniem miejsca na jednego
@@ -39,7 +90,7 @@ Program poprosi kolejno o:
 1. wszystkie skoroszyty modeli głównych dla 8 OSD (można zaznaczyć wiele
    plików, także kilka części jednego OSD);
 2. aktualny skoroszyt zgód;
-3. dokładną łączną liczbę klientów podstawowych (domyślnie 1100, zakres 500–1100);
+3. dokładną łączną liczbę klientów podstawowych (domyślnie 1100, zakres 1–1100);
 4. folder wyników i tryb pracy; nazwa XLSX i dziennika jest nadawana automatycznie.
 
 Wersja konsolowa:

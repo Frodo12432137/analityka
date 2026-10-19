@@ -34,13 +34,17 @@ def atomic_json(path: Path, value: dict, *, replace: bool = False) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def create_plan(domains: dict, total: int, sources: dict, consents: Path) -> dict:
+def create_plan(domains: dict, total: int, sources: dict, consents: Path, *,
+                with_reserves: bool = True, osd_mapping: Path | None = None) -> dict:
     if set(domains) != set(BRANCH_ORDER):
         raise ValueError("Pierwszy plan wymaga list kandydatów ze wszystkich 8 OSD.")
-    targets = allocate_branch_targets({key: len(ids) for key, ids in domains.items()}, total)
+    targets = allocate_branch_targets({key: len(ids) for key, ids in domains.items()}, total,
+                                      with_reserves=with_reserves)
     plan = {
-        "version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
+        "version": 2, "created_at": datetime.now(timezone.utc).isoformat(),
         "total_clients": total, "consents": str(consents.resolve()),
+        "with_reserves": with_reserves,
+        "osd_mapping": str(osd_mapping.resolve()) if osd_mapping else None,
         "branches": {
             key: {"target": targets[key], "eligible": len(domains[key]),
                   "domain_sha256": domain_digest(domains[key]),
@@ -58,14 +62,19 @@ def load_plan(path: Path) -> dict:
     try:
         total = plan["total_clients"]
         branches = plan["branches"]
-        if plan["version"] != 1 or type(total) is not int or not 500 <= total <= 1100:
+        if plan["version"] not in (1, 2) or type(total) is not int or not 1 <= total <= 1100:
             raise ValueError("Nieobsługiwana wersja lub liczba klientów.")
+        with_reserves = plan["with_reserves"] if plan["version"] == 2 else True
+        if type(with_reserves) is not bool:
+            raise ValueError("Nieprawidłowy tryb zastępców.")
         if set(branches) != set(BRANCH_ORDER):
             raise ValueError("Plan musi zawierać wszystkie 8 oddziałów.")
         for row in branches.values():
             if type(row["target"]) is not int or type(row["eligible"]) is not int:
                 raise ValueError("Niecałkowita liczba klientów.")
-            if not 1 <= row["target"] <= row["eligible"] // 2:
+            capacity = row["eligible"] // (2 if with_reserves else 1)
+            minimum = 1 if with_reserves or row["eligible"] else 0
+            if not minimum <= row["target"] <= capacity:
                 raise ValueError("Nieprawidłowa pojemność oddziału.")
             if len(row["domain_sha256"]) != 64 or not isinstance(row["sources"], list):
                 raise ValueError("Nieprawidłowy opis źródeł.")

@@ -15,10 +15,14 @@ TIME_MODES = ("Gotowy raport do wskazanej daty i godziny", "Budżet godzin od ur
 
 def build_run_arguments(*, sources, consents, destination, plan_path, total, branches,
                         mode, time_mode, hours="12", finish_by="", group_minutes="",
-                        holdout_days="0", shortlist="128", now=None):
+                        holdout_days="0", shortlist="128", now=None, osd_mapping="",
+                        with_reserves=True, groups="4"):
     total = int(total)
-    if not 500 <= total <= 1100:
-        raise ValueError("Cel całego portfela musi należeć do przedziału 500–1100.")
+    if not 1 <= total <= 1100:
+        raise ValueError("Cel całego portfela musi należeć do przedziału 1–1100.")
+    groups = int(groups)
+    if groups < 1:
+        raise ValueError("Liczba grup musi być dodatnia.")
     keys = tuple(dict.fromkeys(canonical_branch(key) for key in branches))
     if not keys:
         raise ValueError("Zaznacz co najmniej jeden oddział.")
@@ -28,10 +32,13 @@ def build_run_arguments(*, sources, consents, destination, plan_path, total, bra
     existing = load_plan(plan) if plan.is_file() else None
     if existing and total != existing["total_clients"]:
         raise ValueError("Cel różni się od zapisanego planu. Dla nowego celu wskaż nowy plik planu.")
+    if existing and with_reserves != existing.get("with_reserves", True):
+        raise ValueError("Tryb zastępców różni się od zapisanego planu. Wskaż nowy plan albo ustaw zgodny tryb.")
+    osd_mapping = osd_mapping or (existing or {}).get("osd_mapping")
     paths = [Path(path).expanduser().resolve() for path in sources]
     if not paths and not existing:
         raise ValueError("Dodaj pliki wszystkich 8 OSD do przygotowania pierwszego planu.")
-    for path in [*paths, Path(consents).expanduser()]:
+    for path in [*paths, Path(consents).expanduser(), *([Path(osd_mapping).expanduser()] if osd_mapping else [])]:
         if not path.is_file() or path.suffix.lower() != ".xlsx":
             raise ValueError(f"Wskaż istniejący plik XLSX: {path}.")
     folder = Path(destination).expanduser().resolve()
@@ -40,6 +47,11 @@ def build_run_arguments(*, sources, consents, destination, plan_path, total, bra
         arguments.extend(("--input", str(path)))
     arguments.extend(("--consents", str(Path(consents).expanduser().resolve()),
                       "--total-clients", str(total), "--allocation-plan", str(plan)))
+    if osd_mapping:
+        arguments.extend(("--osd-mapping", str(Path(osd_mapping).expanduser().resolve())))
+    if not with_reserves:
+        arguments.append("--no-reserves")
+    arguments.extend(("--groups", str(groups)))
     if set(keys) != set(BRANCH_ORDER):
         for key in keys:
             arguments.extend(("--branches", key))

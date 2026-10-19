@@ -4,6 +4,34 @@ Otwórz cały rozpakowany folder pakietu w VS Code przez **File → Open Folder*
 Plik startowy to **uruchom_klientow_reprezentatywnych.py**. Ścieżki do danych
 wskazujesz w oknie programu; nie trzeba wpisywać ich w kodzie.
 
+## Nowe zgody: lista PPE bez OSD, np. 270 punktów
+
+W zakładce **Dane i plan** wskaż dwa pliki:
+
+1. **Aktualny plik zgód** — nowa lista z kolumnami `Numer PPE` oraz
+   `Właściwy PPE (w przypadku błędów w kolumnie A)`. Korekta ma pierwszeństwo.
+2. **Pierwotny plik zgód — mapowanie OSD** — stary eksport zawierający
+   `Kod PP Aktualny` i `OSD Nazwa - PP Aktualny`. Służy tylko do odczytu OSD.
+
+Wybierz nową nazwę planu, np. `Plan_270.json`. Dodaj modele wszystkich 8 OSD
+do przygotowania pierwszego podziału. W zakładce **Oddziały i czas** zaznacz
+**Wszystkie OSD**, ustaw cel np. **270** i odznacz dobór unikalnego zastępcy,
+jeśli chcesz wykorzystać całą pulę do odtworzenia bilansu. Zakres celu wynosi
+1–1100; nie może przekraczać liczby dostępnych PPE z profilami po wykluczeniach.
+Samo 270 wierszy zgód nie gwarantuje 270 dostępnych, unikalnych punktów.
+
+Ustaw **1 grupę**, jeśli PPE danego OSD mają wspólnie odtwarzać jego bilans,
+albo zachowaj 4 grupy do porównania z wcześniejszą konfiguracją. Porównywane
+przebiegi powinny mieć tę samą liczbę grup i pozostałe ustawienia.
+Najpierw wybierz **Sprawdzenie danych**, potem **Pełne obliczenia**.
+Początkowe ustawienia pozostają 1100 klientów, 4 grupy, zastępcy włączeni.
+
+Kody muszą być tekstem. Program zatrzyma odczyt przy brakującym mapowaniu
+OSD lub sprzecznym przypisaniu. Duplikaty zostaną policzone i usunięte.
+Raport `Pokrycie_OSD` pokazuje liczbę PPE na kolejnych etapach i oddziały
+bez kandydatów. Ich bilans nie jest oceniany, co jest zaznaczone w opisie wyniku.
+Wyniki jakości znajdują się w `Reprezentatywnosc` i `Jakosc_dni_godzin`.
+
 ## 1. Jednorazowe przygotowanie Pythona
 
 Potrzebny jest Python 3.10 lub nowszy, **64-bitowy**, z Tcl/Tk, oraz rozszerzenie
@@ -39,7 +67,7 @@ konkretną komendę instalacji, jeżeli w wybranym interpreterze brakuje bibliot
    Można dodawać kolejne pliki z innych folderów.
 4. Przy **Aktualny plik zgód** kliknij **Wybierz…** i wskaż jeden XLSX.
 5. Wskaż folder wyników. Domyślnie wybrano **1100 klientów podstawowych łącznie**
-   dla wszystkich OSD (możesz zmienić tę liczbę w zakresie 500–1100).
+   dla wszystkich OSD (możesz zmienić tę liczbę w zakresie 1–1100).
    Dodatkowo program dobierze po jednym unikalnym zastępcy: przy domyślnym
    ustawieniu to **1100 podstawowych + 1100 zastępców = 2200 różnych PPE**.
 6. Wybierz tryb pracy i kliknij **Uruchom**. Postęp zobaczysz w terminalu VS Code.

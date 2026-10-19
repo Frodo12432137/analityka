@@ -37,6 +37,10 @@ def _plain(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
 
 
+def _has_value(value: object) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
 def canonical_branch(value: object) -> str:
     """Mapuje nazwy techniczne i opisowe OSD na osiem stałych kluczy."""
 
@@ -77,6 +81,7 @@ class ConsentIndex:
     by_branch: Mapping[str, frozenset[str]]
     source_rows: int
     duplicate_rows: int
+    corrected_rows: int = 0
 
     @property
     def unique_count(self) -> int:
@@ -106,7 +111,7 @@ def _header_positions(rows: Iterable[Tuple[object, ...]]) -> Tuple[int, int, int
     )
 
 
-def load_consent_workbook(path: str | Path) -> ConsentIndex:
+def _load_legacy_consent_workbook(path: str | Path) -> ConsentIndex:
     """Czyta skoroszyt zawierający wyłącznie aktualne zgody marketingowe."""
 
     try:
@@ -117,7 +122,7 @@ def load_consent_workbook(path: str | Path) -> ConsentIndex:
     source = Path(path)
     if not source.exists():
         raise FileNotFoundError(source)
-    workbook = load_workbook(source, read_only=True, data_only=True)
+    workbook = load_workbook(source, read_only=True, data_only=False)
     try:
         selected = None
         positions = None
@@ -151,7 +156,7 @@ def load_consent_workbook(path: str | Path) -> ConsentIndex:
             if raw_code in (None, "") and raw_branch in (None, ""):
                 continue
             source_rows += 1
-            if not isinstance(raw_code, str) or not raw_code.strip():
+            if not isinstance(raw_code, str) or not raw_code.strip() or raw_code.startswith("="):
                 raise ValueError(
                     f"{selected.title}!{row_number}: Kod PP Aktualny musi być "
                     "niepustym tekstem (nie liczbą Excela)."
@@ -177,3 +182,76 @@ def load_consent_workbook(path: str | Path) -> ConsentIndex:
         source_rows=source_rows,
         duplicate_rows=duplicates,
     )
+
+
+def load_consent_workbook(
+    path: str | Path, osd_mapping_path: str | Path | None = None,
+) -> ConsentIndex:
+    """Aktualna lista wyznacza zgodę; stary eksport służy tylko do mapowania OSD.
+
+    W nowym układzie niepusta kolumna korekty ma bezwzględne pierwszeństwo.
+    Błędna korekta zatrzymuje import, bez powrotu do nieaktualnego kodu A.
+    Identyfikatory muszą być tekstem, aby zachować wszystkie cyfry i zera.
+    """
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(Path(path), read_only=True, data_only=False)
+    try:
+        selected = None
+        positions = None
+        for sheet in workbook.worksheets:
+            for number, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                names = [_plain(value) for value in row]
+                if "numer ppe" in names:
+                    corrected = next((i for i, value in enumerate(names) if value ==
+                                      "wlasciwy ppe w przypadku bledow w kolumnie a"), None)
+                    if corrected is None:
+                        raise ValueError("Nowy plik zgód musi zawierać kolumnę 'Właściwy PPE (w przypadku błędów w kolumnie A)'.")
+                    selected, positions = sheet, (number, names.index("numer ppe"), corrected)
+                    break
+                if number >= 30:
+                    break
+            if selected is not None:
+                break
+        if selected is None:
+            return _load_legacy_consent_workbook(path)
+        if osd_mapping_path is None:
+            raise ValueError("Nowa lista PPE nie zawiera OSD. Wskaż pierwotny plik zgód przez --osd-mapping lub w oknie programu.")
+        mapping = _load_legacy_consent_workbook(osd_mapping_path)
+        owners = {code: branch for branch, codes in mapping.by_branch.items() for code in codes}
+        header, original_column, corrected_column = positions
+        by_branch = {key: set() for key in BRANCH_ORDER}
+        seen = set()
+        missing_rows = []
+        source_rows = duplicates = corrected_rows = 0
+        for number, row in enumerate(selected.iter_rows(
+            min_row=header + 1, max_col=max(original_column, corrected_column) + 1,
+            values_only=True,
+        ), header + 1):
+            original, corrected = row[original_column], row[corrected_column]
+            if not _has_value(original) and not _has_value(corrected):
+                continue
+            source_rows += 1
+            use_corrected = _has_value(corrected)
+            raw_code = corrected if use_corrected else original
+            corrected_rows += int(use_corrected)
+            if not isinstance(raw_code, str) or raw_code.startswith("="):
+                raise ValueError(f"{selected.title}!{number}: używany kod PPE musi być tekstem, nie liczbą ani formułą Excela.")
+            code = raw_code.strip()
+            if code in seen:
+                duplicates += 1
+                continue
+            seen.add(code)
+            if code not in owners:
+                missing_rows.append(number)
+            else:
+                by_branch[owners[code]].add(code)
+        if missing_rows:
+            raise ValueError(f"Brak przypisania OSD w pierwotnym pliku dla {len(missing_rows)} PPE. "
+                             f"Wiersze nowej listy (pierwsze 10): {missing_rows[:10]}. Popraw mapowanie przed obliczeniami.")
+        if not seen:
+            raise ValueError("Plik zgód nie zawiera żadnego PPE.")
+        return ConsentIndex({key: frozenset(values) for key, values in by_branch.items()},
+                            source_rows, duplicates, corrected_rows)
+    finally:
+        workbook.close()

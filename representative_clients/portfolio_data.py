@@ -189,14 +189,14 @@ def allocate_bounded(
 
 
 def allocate_branch_targets(
-    eligible_counts: Mapping[str, int], total: int
+    eligible_counts: Mapping[str, int], total: int, *, with_reserves: bool = True,
 ) -> Dict[str, int]:
     keys = tuple(key for key in BRANCH_ORDER if key in eligible_counts)
     if not keys:
         raise ValueError("Nie znaleziono żadnego obsługiwanego OSD.")
-    capacity = {key: int(eligible_counts[key]) // 2 for key in keys}
+    capacity = {key: int(eligible_counts[key]) // (2 if with_reserves else 1) for key in keys}
     too_small = [key for key in keys if capacity[key] < 1]
-    if too_small:
+    if too_small and with_reserves:
         raise ValueError(
             "Za mało klientów ze zgodą, aby wybrać klienta i unikalnego zastępcę: "
             + ", ".join(too_small)
@@ -204,7 +204,7 @@ def allocate_branch_targets(
     return allocate_bounded(
         total,
         eligible_counts,
-        {key: 1 for key in keys},
+        {key: int(capacity[key] > 0) for key in keys},
         capacity,
         keys,
     )
