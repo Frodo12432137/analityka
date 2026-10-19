@@ -12,7 +12,7 @@ MODES = ("Sprawdzenie danych", "Próba: 60 sekund na grupę", "Pełne obliczenia
 
 
 def choose_run(project_dir):
-    from tkinter import Tk, StringVar, Listbox, END, filedialog, messagebox, ttk
+    from tkinter import Tk, StringVar, BooleanVar, Listbox, END, filedialog, messagebox, ttk
 
     input_dir, consent_dir, output_dir = (project_dir / "Dane_in" / "Modele",
                                          project_dir / "Dane_in" / "Zgody", project_dir / "Dane_out")
@@ -20,8 +20,8 @@ def choose_run(project_dir):
         directory.mkdir(parents=True, exist_ok=True)
     root = Tk()
     root.title("Klienci reprezentatywni — oddziały, termin i jakość")
-    root.geometry("940x690")
-    root.minsize(830, 620)
+    root.geometry("940x800")
+    root.minsize(830, 760)
     tabs = ttk.Notebook(root)
     tabs.pack(fill="both", expand=True, padx=12, pady=12)
     source_panel, run_panel, quality_panel = (ttk.Frame(tabs, padding=14) for _ in range(3))
@@ -31,6 +31,9 @@ def choose_run(project_dir):
         panel.columnconfigure(0, weight=1)
     sources = []
     consent = StringVar()
+    osd_mapping = StringVar()
+    with_reserves = BooleanVar(value=True)
+    groups = StringVar(value="4")
     destination = StringVar(value=str(output_dir))
     plan_path = StringVar(value=str(output_dir / "Plan_1100.json"))
     total, mode = StringVar(value="1100"), StringVar(value=MODES[2])
@@ -82,6 +85,11 @@ def choose_run(project_dir):
         if value:
             destination.set(value)
 
+    def choose_mapping():
+        value = filedialog.askopenfilename(parent=root, initialdir=str(consent_dir), filetypes=[("Excel", "*.xlsx")])
+        if value:
+            osd_mapping.set(value)
+
     def choose_plan():
         value = filedialog.asksaveasfilename(parent=root, title="Wskaż istniejący plan lub nazwę nowego",
                                             initialdir=str(output_dir), defaultextension=".json",
@@ -91,6 +99,7 @@ def choose_run(project_dir):
             refresh_plan()
 
     path_row(source_panel, "Aktualny plik zgód", consent, choose_consents)
+    path_row(source_panel, "Pierwotny plik zgód — mapowanie OSD (wymagany dla nowej listy PPE)", osd_mapping, choose_mapping)
     path_row(source_panel, "Folder wyników i logów", destination, choose_output)
     path_row(source_panel, "Stały plan podziału (JSON; istniejący albo nowy)", plan_path, choose_plan)
     ttk.Label(source_panel, textvariable=plan_note, wraplength=800).grid(sticky="w", pady=8)
@@ -101,7 +110,7 @@ def choose_run(project_dir):
     branch_list.grid(sticky="ew", pady=6)
     for key in BRANCH_ORDER:
         branch_list.insert(END, BRANCH_LABELS[key] + " — przydział po przygotowaniu planu")
-    branch_list.selection_set(0)
+    branch_list.selection_set(0, END)
     buttons = ttk.Frame(run_panel)
     buttons.grid(sticky="w")
     ttk.Button(buttons, text="Wszystkie OSD", command=lambda: branch_list.selection_set(0, END)).pack(side="left")
@@ -112,12 +121,38 @@ def choose_run(project_dir):
     ttk.Combobox(settings, textvariable=mode, values=MODES, state="readonly", width=39).grid(row=0, column=1, padx=8, pady=4)
     ttk.Label(settings, text="Sposób ustawienia czasu").grid(row=1, column=0, sticky="w")
     ttk.Combobox(settings, textvariable=time_mode, values=TIME_MODES, state="readonly", width=39).grid(row=1, column=1, padx=8, pady=4)
-    fields = (("Cel portfela łącznie (podstawowi)", total), ("Budżet godzin", hours),
+    fields = (("Cel portfela łącznie (1–1100 podstawowych)", total), ("Budżet godzin", hours),
               ("Termin raportu: RRRR-MM-DD GG:MM", finish),
-              ("Dodatkowy limit minut na grupę (puste = automatyczny)", minutes))
+              ("Dodatkowy limit minut na grupę (puste = automatyczny)", minutes),
+              ("Liczba niezależnych grup na OSD", groups))
     for row, (label, variable) in enumerate(fields, start=2):
         ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Entry(settings, textvariable=variable, width=24).grid(row=row, column=1, sticky="w", padx=8)
+        entry = ttk.Entry(settings, textvariable=variable, width=24)
+        entry.grid(row=row, column=1, sticky="w", padx=8)
+        if variable is total:
+            total_entry = entry
+    reserve_toggle = ttk.Checkbutton(run_panel, text="Dobierz unikalnego zastępcę dla każdego klienta (wymaga podwójnej puli PPE)",
+                                    variable=with_reserves)
+    reserve_toggle.grid(sticky="w")
+    pool_note = StringVar()
+    ttk.Label(run_panel, textvariable=pool_note, wraplength=800).grid(sticky="w", pady=4)
+
+    def mapping_mode(*_):
+        automatic = bool(osd_mapping.get().strip())
+        total_entry.configure(state="disabled" if automatic else "normal")
+        reserve_toggle.configure(state="disabled" if automatic else "normal")
+        if automatic:
+            total.set("Automatycznie z Excela")
+            with_reserves.set(False)
+            pool_note.set("Nowa lista: dopasowanie całej dostępnej puli PPE, bez limitu liczby i bez zastępców.")
+            if Path(plan_path.get()) == output_dir / "Plan_1100.json":
+                plan_path.set(str(output_dir / "Plan_aktualne_zgody.json"))
+        else:
+            pool_note.set("")
+            if not total.get().isdigit():
+                total.set("1100")
+
+    osd_mapping.trace_add("write", mapping_mode)
     ttk.Label(run_panel, wraplength=800, text="Termin obejmuje odczyt, solver, zastępców i raport. Czas jest dzielony między grupy. "
               "Bez limitu oznacza również brak ograniczenia 24 h. Komputer musi pozostać włączony i nieusypiany.").grid(sticky="w", pady=8)
 
@@ -129,9 +164,10 @@ def choose_run(project_dir):
               "Muszą pozostać co najmniej 2 dni do dopasowania. Przy 0 raport oznaczy brak niezależnego testu.").grid(sticky="w", pady=8)
     ttk.Label(quality_panel, text="Liczba podobnych kandydatów na zastępcę:").grid(sticky="w", pady=(12, 4))
     ttk.Combobox(quality_panel, textvariable=shortlist, values=("32", "128", "256"), state="readonly", width=10).grid(sticky="w")
-    ttk.Label(quality_panel, wraplength=800, text="Każda z 4 grup osobno odtwarza cały bilans oddziału. "
+    ttk.Label(quality_panel, wraplength=800, text="Każda grupa osobno odtwarza cały bilans oddziału. "
               "Przydział 88 oznacza 4 zestawy po 22; wag zestawów nie sumujemy. "
-              "Zapis grupy zawiera podstawowych; unikalni zastępcy są dobierani po wszystkich grupach OSD.").grid(sticky="w", pady=20)
+              "Przy małej puli można wyłączyć zastępców i wybrać 1 grupę, aby wspólnie dopasować dostępne PPE w OSD. "
+              "Do porównania wielkości pul zachowaj tę samą liczbę grup i pozostałe parametry.").grid(sticky="w", pady=20)
 
     def refresh_plan():
         path = Path(plan_path.get()).expanduser()
@@ -144,14 +180,20 @@ def choose_run(project_dir):
             branch_list.delete(0, END)
             for key in BRANCH_ORDER:
                 count = plan["branches"][key]["target"]
-                branch_list.insert(END, f"{BRANCH_LABELS[key]} — {count} podstawowych + {count} zastępców")
+                reserves = count if plan.get("with_reserves", True) else 0
+                branch_list.insert(END, f"{BRANCH_LABELS[key]} — {count} podstawowych + {reserves} zastępców")
             for index in indices:
                 branch_list.selection_set(index)
             total.set(str(plan["total_clients"]))
+            with_reserves.set(plan.get("with_reserves", True))
+            if not osd_mapping.get():
+                osd_mapping.set(plan.get("osd_mapping") or "")
             if not consent.get():
                 consent.set(plan.get("consents", ""))
-            plan_note.set(f"Plan {plan['plan_id']}: {plan['total_clients']} podstawowych + tyle samo zastępców. "
+            plan_note.set(f"Plan {plan['plan_id']}: {plan['total_clients']} podstawowych; "
+                          f"zastępcy: {'włączeni' if with_reserves.get() else 'wyłączeni'}. "
                           "Przy pustej liście plików program użyje zapisanych ścieżek wybranych OSD.")
+            mapping_mode()
         except (ValueError, OSError) as exc:
             messagebox.showerror("Plan podziału", str(exc), parent=root)
 
@@ -164,6 +206,7 @@ def choose_run(project_dir):
                 total=total.get(), branches=[BRANCH_ORDER[i] for i in branch_list.curselection()],
                 mode=chosen_mode, time_mode=time_mode.get(), hours=hours.get(), finish_by=finish.get(),
                 group_minutes=minutes.get(), holdout_days=holdout.get(), shortlist=shortlist.get(),
+                osd_mapping=osd_mapping.get(), with_reserves=with_reserves.get(), groups=groups.get(),
             )
             result[1].parent.mkdir(parents=True, exist_ok=True)
             root.destroy()

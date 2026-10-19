@@ -52,7 +52,8 @@ def error_metrics(actual, modeled) -> dict:
     }
 
 
-def assess_quality(data: SelectionData, selection: SelectionResult, replacements, test_days=frozenset()) -> dict:
+def assess_quality(data: SelectionData, selection: SelectionResult, replacements, test_days=frozenset(),
+                   *, with_reserves: bool = True) -> dict:
     positions = {client: i for i, client in enumerate(data.client_ids)}
     dates = np.asarray([pd.Timestamp(p[0]).date().isoformat() for p in data.periods])
     hours = np.asarray([str(p[1]) for p in data.periods])
@@ -77,8 +78,9 @@ def assess_quality(data: SelectionData, selection: SelectionResult, replacements
                    "klienci_podstawowi": len(group.selected_weights), **base,
                    "walidacja": "Odłożone ostatnie dni; nie użyte w doborze ani wagach" if scope.startswith("Test") else
                    ("Dopasowanie; test podano osobno" if test_days else "Brak testu poza doborem"),
-                   "zastepcy_kompletni": len(group_matches) == len(group.selected_weights)}
-            if len(group_matches) == len(group.selected_weights):
+                   "zastepcy_kompletni": len(group_matches) == len(group.selected_weights) if with_reserves else None,
+                   "dobor_zastepcow": with_reserves}
+            if with_reserves and len(group_matches) == len(group.selected_weights):
                 after = error_metrics(targets[mask], all_prediction[mask])
                 row.update({"MAE_podmiana_wszystkich": after["MAE"],
                             "blad_wzgledny_podmiana_wszystkich": after["blad_wzgledny"]})

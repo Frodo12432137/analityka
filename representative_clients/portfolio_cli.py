@@ -42,13 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skoroszyt modelu głównego; parametr można podać wielokrotnie.",
     )
     parser.add_argument("--consents", required=True, type=Path, help="Aktualny plik zgód XLSX.")
+    parser.add_argument("--osd-mapping", type=Path, help="Pierwotny plik zgód z PPE i OSD; tylko mapowanie dla nowej listy.")
+    parser.add_argument("--no-reserves", action="store_true", help="Ocena małej puli bez rezerwowania PPE na zastępców.")
     parser.add_argument("--output", type=Path, help="Wynikowy skoroszyt XLSX.")
-    parser.add_argument(
+    selection_size = parser.add_mutually_exclusive_group()
+    selection_size.add_argument(
         "--total-clients",
         default=None,
         type=int,
-        help="Dokładna łączna liczba klientów podstawowych: od 500 do 1100 (domyślnie 1100).",
+        help="Dokładna łączna liczba klientów podstawowych: od 1 do 1100 (domyślnie 1100); ograniczona dostępną pulą.",
     )
+    selection_size.add_argument("--all-consented", action="store_true",
+                                help="Liczba z danych: wszystkie dopuszczone PPE z profilami, bez zastępców i limitu liczby. Domyślne dla --osd-mapping bez --total-clients.")
     parser.add_argument("--groups", type=int, default=4, help="Liczba grup na OSD.")
     parser.add_argument("--max-share", type=float, default=0.20)
     parser.add_argument("--time-limit", type=float, default=None, help="Opcjonalny dodatkowy limit grupy w sekundach. Domyślnie automatyczny podział całego budżetu.")
@@ -99,9 +104,20 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
         parser.error(str(exc))
     except OSError as exc:
         parser.error(f"Nie można odczytać planu: {exc}")
-    args.total_clients = args.total_clients if args.total_clients is not None else (plan["total_clients"] if plan else 1100)
+    if plan and args.osd_mapping is None and plan.get("osd_mapping"):
+        args.osd_mapping = Path(plan["osd_mapping"])
+    args.all_consented = args.all_consented or (
+        args.total_clients is None and (args.osd_mapping is not None or bool(plan and plan.get("all_consented")))
+    )
+    if args.all_consented:
+        args.no_reserves = True
+        if plan and any(row["target"] != row["eligible"] for row in plan["branches"].values()):
+            parser.error("Zapisany plan ogranicza liczbę PPE. Dla całej aktualnej puli wskaż nowy plan.")
+    args.total_clients = args.total_clients if args.total_clients is not None else (plan["total_clients"] if plan else None if args.all_consented else 1100)
     if plan and args.total_clients != plan["total_clients"]:
         parser.error("Liczba klientów różni się od zapisanego planu. Wskaż nową nazwę planu dla nowego podziału.")
+    if plan and (not args.no_reserves) != plan.get("with_reserves", True):
+        parser.error("Tryb zastępców różni się od zapisanego planu. Użyj zgodnego trybu albo nowego planu.")
     if (selected_keys or args.plan_only) and not args.allocation_plan:
         parser.error("Wybór oddziałów i tryb planu wymagają --allocation-plan.")
     if not args.input and plan:
@@ -111,8 +127,8 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
         parser.error("Dodaj pliki --input albo wskaż istniejący --allocation-plan.")
     if args.holdout_days < 0:
         parser.error("--holdout-days nie może być ujemne.")
-    if not 500 <= args.total_clients <= 1100:
-        parser.error("--total-clients musi należeć do przedziału 500–1100.")
+    if not args.all_consented and not 1 <= args.total_clients <= 1100:
+        parser.error("--total-clients musi należeć do przedziału 1–1100.")
     if args.groups <= 0:
         parser.error("--groups musi być dodatnie.")
     if args.reserve_shortlist <= 0:
@@ -130,6 +146,8 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
         if args.output.suffix.lower() != ".xlsx":
             parser.error("Plik wynikowy musi mieć rozszerzenie .xlsx.")
         forbidden = {path.resolve() for path in args.input} | {args.consents.resolve()}
+        if args.osd_mapping:
+            forbidden.add(args.osd_mapping.resolve())
         if args.output.resolve() in forbidden:
             parser.error("Wynik nie może zastąpić pliku wejściowego ani pliku zgód.")
         if args.allocation_plan and args.output.resolve() == args.allocation_plan.resolve():
@@ -146,7 +164,9 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
 
         budget.check()
         print("Wczytywanie aktualnego pliku zgód...", flush=True)
-        consents = load_consent_workbook(args.consents)
+        consents = load_consent_workbook(args.consents, args.osd_mapping)
+        print(f"Zgody: {consents.source_rows} wierszy, {consents.unique_count} unikalnych PPE, "
+              f"{consents.corrected_rows} korekt, {consents.duplicate_rows} duplikatów.", flush=True)
         sources = _source_map(args.input)
         needed = selected_keys or BRANCH_ORDER
         missing = [key for key in (needed if plan else BRANCH_ORDER) if key not in sources]
@@ -182,15 +202,24 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
             key: len(consent_clients[key] - exclusions[key]) for key in sources
         }
         domains = {key: consent_clients[key] - exclusions[key] for key in sources}
+        if args.all_consented and not plan:
+            args.total_clients = sum(eligible_counts.values())
+            if args.total_clients == 0:
+                raise ValueError("Aktualna lista nie zawiera dopuszczonych PPE z profilami w źródłach.")
+        if args.all_consented:
+            print(f"Liczba PPE z danych: {args.total_clients}; wszystkie dopuszczone punkty, bez zastępców.", flush=True)
         if plan:
             for key in sources:
                 check_domain(plan, key, domains[key])
         elif args.allocation_plan:
-            plan = create_plan(domains, args.total_clients, sources, args.consents)
+            plan = create_plan(domains, args.total_clients, sources, args.consents,
+                               with_reserves=not args.no_reserves, osd_mapping=args.osd_mapping,
+                               all_consented=args.all_consented)
             atomic_json(args.allocation_plan, plan)
             print(f"Zapisano stały plan podziału: {args.allocation_plan}", flush=True)
         branch_targets = ({key: row["target"] for key, row in plan["branches"].items()} if plan else
-                          allocate_branch_targets(eligible_counts, args.total_clients))
+                          allocate_branch_targets(eligible_counts, args.total_clients,
+                                                  with_reserves=not args.no_reserves))
         for key in sources:
             if len(required[key]) > branch_targets[key]:
                 raise ValueError(
@@ -208,7 +237,7 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
             print(
                 f"  {BRANCH_LABELS[key]}: {len(source_clients[key])} PPE w źródłach, "
                 f"{len(consent_clients[key])} ze zgodą, {eligible_counts[key]} po wykluczeniach; "
-                f"wybór {branch_targets[key]} + {branch_targets[key]} zastępców.", flush=True,
+                f"wybór {branch_targets[key]} + {0 if args.no_reserves else branch_targets[key]} zastępców.", flush=True,
             )
         if args.validate_only or args.plan_only:
             print("Kontrola list zakończona. Profile i formuły nie były sprawdzane; użyj --validate-full.")
@@ -217,11 +246,25 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
         if selected_keys:
             sources = OrderedDict((key, sources[key]) for key in selected_keys)
         scope_target = sum(branch_targets[key] for key in sources)
+        uncovered = [key for key in sources if branch_targets[key] == 0]
+        coverage = {BRANCH_LABELS[key]: {
+            "PPE_w_aktualnej_liscie": len(consents.by_branch[key]),
+            "PPE_z_profilem": len(consent_clients[key]),
+            "PPE_po_wykluczeniach": eligible_counts[key],
+            "cel": branch_targets[key],
+            "status": "Brak kandydatów — bilans nie jest oceniony" if key in uncovered else "Objęty obliczeniami",
+        } for key in sources}
+        if uncovered:
+            print("UWAGA: brak kandydatów dla OSD: " + ", ".join(BRANCH_LABELS[key] for key in uncovered)
+                  + ". Raport nie ocenia pełnego portfela.", flush=True)
+        sources = OrderedDict((key, entries) for key, entries in sources.items() if branch_targets[key] > 0)
+        if not sources:
+            raise ValueError("Wybrane OSD nie mają kandydatów; brak bilansu do oceny.")
         if not validation_run:
             print(
                 f"Budżet solvera: {len(sources)} OSD × {args.groups} grup; "
                 + ("bez limitu czasu." if seconds is None else f"całość do {seconds / 3600:.2f} h, z rezerwą na zastępców i raport.")
-                + f" Cel tego przebiegu: {scope_target} podstawowych + {scope_target} zastępców.", flush=True,
+                + f" Cel tego przebiegu: {scope_target} podstawowych + {0 if args.no_reserves else scope_target} zastępców.", flush=True,
             )
 
         outputs = []
@@ -257,6 +300,12 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                 "dni_testowe": args.holdout_days,
                 "liczba_grup_na_OSD": args.groups,
                 "kandydatow_na_zastepce": args.reserve_shortlist,
+                "dobor_zastepcow": not args.no_reserves,
+                "liczba_PPE_z_danych": args.all_consented,
+                "plik_aktualnych_zgod": str(args.consents),
+                "plik_mapowania_OSD": str(args.osd_mapping) if args.osd_mapping else "OSD w aktualnych zgodach",
+                "OSD_bez_kandydatow": ", ".join(BRANCH_LABELS[key] for key in uncovered),
+                "pokrycie_OSD": coverage,
             }
 
         report_rows = 1
@@ -336,13 +385,15 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                     source_files=tuple(path.name for path, _ in entries),
                     source_clients=len(source_clients[key]), consent_clients=len(consent_clients[key]),
                     legacy_excluded=len(exclusions[key]), eligible_clients=eligible_counts[key],
-                    target_clients=branch_total, quality=assess_quality(data, partial_selection, empty, test_days),
+                    target_clients=branch_total, quality=assess_quality(data, partial_selection, empty, test_days,
+                                                                      with_reserves=not args.no_reserves),
+                    with_reserves=not args.no_reserves,
                 )
                 saved = write_portfolio_workbook(
                     [partial_output], group_dir / f"{key}_{group.group}.xlsx", branch_total,
                     partial=True, run_metadata=run_metadata(), allocation_plan=plan,
                 )
-                print(f"  Zapis grupy: {saved} (podstawowi; zastępcy po ukończeniu grup OSD).", flush=True)
+                print(f"  Zapis grupy: {saved} (podstawowi).", flush=True)
 
             selection = solve_selection(
                 fit_data,
@@ -357,14 +408,14 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                 raise RuntimeError(
                     f"{label}: wybrano {selection.selected_count}, oczekiwano {branch_total}."
                 )
-            print(f"  Dobór {branch_total} unikalnych zastępców...", flush=True)
             budget.check()
-            replacements = choose_unique_reserves(
-                fit_data,
-                selection,
-                initial_shortlist=args.reserve_shortlist,
-                check_budget=budget.check,
-            )
+            replacements = ReplacementResult(matches=(), diagnostics=())
+            if not args.no_reserves:
+                print(f"  Dobór {branch_total} unikalnych zastępców...", flush=True)
+                replacements = choose_unique_reserves(
+                    fit_data, selection, initial_shortlist=args.reserve_shortlist,
+                    check_budget=budget.check,
+                )
             print(f"  Cały etap OSD {label}: {(time.monotonic() - branch_started) / 60:.1f} min.", flush=True)
             outputs.append(
                 BranchOutput(
@@ -376,7 +427,8 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                     legacy_excluded=len(exclusions[key]),
                     eligible_clients=eligible_counts[key],
                     target_clients=branch_total,
-                    quality=assess_quality(data, selection, replacements, test_days),
+                    quality=assess_quality(data, selection, replacements, test_days, with_reserves=not args.no_reserves),
+                    with_reserves=not args.no_reserves,
                 )
             )
             budget.check()

@@ -28,6 +28,17 @@ class BranchOutput:
     eligible_clients: int
     target_clients: int
     quality: Mapping[str, pd.DataFrame] | None = None
+    with_reserves: bool = True
+
+
+def _plan_status(output: BranchOutput | None, row: dict) -> str:
+    if output is None:
+        return "Brak kandydatów — bilans nie jest oceniony" if row["eligible"] == 0 else "Poza tym raportem"
+    if output.selection.selected_count != row["target"]:
+        return "Niekompletny"
+    if not output.with_reserves:
+        return "Kompletny wybór bez zastępców"
+    return "Komplet par" if len(output.replacements.matches) == row["target"] else "Niekompletny"
 
 
 def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
@@ -96,7 +107,9 @@ def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
                 "srednie_MAE_model": (
                     sum(item.mae_primary for item in group_diags) / len(group_diags)
                     if group_diags
-                    else None
+                    else (float(output.quality["Reprezentatywnosc"].loc[
+                        output.quality["Reprezentatywnosc"]["zakres"] == "Dopasowanie", "MAE"
+                    ].mean()) if output.quality else None)
                 ),
                 "srednie_MAE_po_podmianie": (
                     sum(item.mae_after_replacement for item in group_diags)
@@ -105,7 +118,8 @@ def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
                     else None
                 ),
                 "kompletny_wybor_OSD": output.selection.selected_count == output.target_clients,
-                "komplet_zastepcow": len(output.replacements.matches) == output.target_clients,
+                "komplet_zastepcow": len(output.replacements.matches) == output.target_clients if output.with_reserves else None,
+                "tryb_zastepcow": "Włączony" if output.with_reserves else "Wyłączony — ocena dostępnej puli",
                 "ocena_testowa": "Test na odłożonych dniach" if output.quality and
                     "Test poza doborem" in output.quality["Reprezentatywnosc"]["zakres"].values else "Brak testu poza doborem",
             }
@@ -138,6 +152,17 @@ def _mail_text(outputs: Sequence[BranchOutput], total_target: int) -> str:
         f"{output.selection.selected_count}"
         for output in outputs
     )
+    reserve_text = "Dobór zastępców wyłączony — ocena dostępnej puli PPE. "
+    if any(output.with_reserves for output in outputs):
+        reserve_text = (
+            ("Dobór zastępców jest kompletny dla zapisanych klientów. " if selected == reserves else
+             "Dobór zastępców NIE JEST kompletny; ten zapis nie stanowi gotowej listy par. ")
+            + "Zastępcy pochodzą wyłącznie spośród PPE z aktualną zgodą. "
+            "Zastępcy zostali przypisani wspólnie w obrębie OSD z krótkich list podobnych "
+            "profili, minimalizując sumę względnych błędów L1 podmian na tych listach. "
+            "Nie dowodzono optymalności względem wszystkich możliwych par. "
+            "Błąd podmiany wszystkich klientów jest scenariuszem innym niż podmiana jednej osoby. "
+        )
     return (
         "Model klientów reprezentatywnych został uruchomiony po ograniczeniu zbioru "
         "do PPE znajdujących się w aktualnym pliku zgód marketingowych i po "
@@ -151,16 +176,10 @@ def _mail_text(outputs: Sequence[BranchOutput], total_target: int) -> str:
         f"Solver zakończył w zadanej tolerancji luki MIP w {optimal} z {group_count} grup "
         "(szczegółowe luki i statusy w arkuszu Solver).\n\n"
         f"Liczba zapisanych klientów podstawowych: {selected}; liczba różnych zastępców: {reserves}. "
-        + ("Dobór zastępców jest kompletny dla zapisanych klientów. " if selected == reserves else
-           "Dobór zastępców NIE JEST kompletny; ten zapis nie stanowi gotowej listy par. ") +
-        "Zastępcy pochodzą wyłącznie spośród PPE z aktualną zgodą. "
-        "Zastępcy zostali przypisani wspólnie w obrębie OSD z krótkich list podobnych "
-        "profili, minimalizując sumę względnych błędów L1 podmian na tych listach. "
-        "Nie dowodzono optymalności względem wszystkich możliwych par. "
+        + reserve_text +
         "Szczegółowe wyniki, lejek danych, statusy "
         "solvera i wpływ podmian znajdują się w załączonym skoroszycie. "
-        "Każda grupa osobno odtwarza cały bilans oddziału; wag czterech grup nie należy sumować. "
-        "Błąd podmiany wszystkich klientów jest scenariuszem innym niż podmiana jednej osoby. "
+        "Każda grupa osobno odtwarza cały bilans oddziału; wag różnych grup nie należy sumować. "
         "Ocena na danych użytych do doboru jest dopasowaniem historycznym. "
         "Tylko wiersze oznaczone jako test poza doborem dotyczą dni niewykorzystanych przez solver ani dobór zastępców."
     )
@@ -252,14 +271,18 @@ def write_portfolio_workbook(
         raise FileExistsError(f"Plik {target} już istnieje.")
     target.parent.mkdir(parents=True, exist_ok=True)
     frames = _frames(outputs)
+    run_metadata = dict(run_metadata or {})
+    coverage = run_metadata.pop("pokrycie_OSD", None)
+    if coverage:
+        frames["Pokrycie_OSD"] = pd.DataFrame([{"OSD": key, **row} for key, row in coverage.items()])
     if allocation_plan:
         current = {canonical_branch(item.selection.branch): item for item in outputs}
         frames["Plan_podzialu"] = pd.DataFrame([
-            {"OSD": BRANCH_LABELS[key], "klienci_w_planie": row["target"], "zastepcy_w_planie": row["target"],
+            {"OSD": BRANCH_LABELS[key], "klienci_w_planie": row["target"],
+             "zastepcy_w_planie": row["target"] if allocation_plan.get("with_reserves", True) else 0,
              "kandydaci_przy_utworzeniu": row["eligible"],
              "zapisani_w_tym_raporcie": current[key].selection.selected_count if key in current else 0,
-             "status_w_tym_raporcie": ("Komplet par" if len(current[key].replacements.matches) == row["target"] else "Niekompletny")
-                 if key in current else "Poza tym raportem",
+             "status_w_tym_raporcie": _plan_status(current.get(key), row),
              "plan_id": allocation_plan["plan_id"]}
             for key, row in allocation_plan["branches"].items()
         ])
@@ -295,14 +318,18 @@ def write_portfolio_workbook(
                     "wartosc": [
                         total_target,
                         len(outputs),
-                        "Wyłącznie Kod PP Aktualny z pliku zgód, zgodny z OSD",
-                        "Jeden unikalny zastępca na klienta, w tym samym OSD",
-                        "CZĘŚCIOWY — sprawdź kompletność wyboru i zastępców w Podsumowaniu" if partial else "Pełny przebieg wskazanych OSD",
+                        "Wyłącznie aktualna lista PPE; korekta ma pierwszeństwo; pierwotny eksport służy tylko do mapowania OSD",
+                        "Jeden unikalny zastępca na klienta, w tym samym OSD" if any(item.with_reserves for item in outputs) else "Dobór zastępców wyłączony",
+                        "CZĘŚCIOWY — sprawdź kompletność wyboru i zastępców w Podsumowaniu" if partial else
+                        ("Nie oceniono OSD bez kandydatów — sprawdź Pokrycie_OSD" if run_metadata.get("OSD_bez_kandydatow") else "Pełny przebieg wskazanych OSD"),
                         *(run_metadata or {}).values(),
                     ],
                 }
             ).to_excel(writer, sheet_name="Konfiguracja", index=False)
             mail_text = _mail_text(outputs, total_target)
+            if run_metadata.get("OSD_bez_kandydatow"):
+                mail_text = ("Nie oceniono pełnego portfela. OSD bez kandydatów: "
+                             + str(run_metadata["OSD_bez_kandydatow"]) + ".\n\n" + mail_text)
             if partial:
                 mail_text = "RAPORT CZĘŚCIOWY: obejmuje zapisane grupy/OSD. Kompletność wyboru i zastępców podano w Podsumowaniu.\n\n" + mail_text
             pd.DataFrame(

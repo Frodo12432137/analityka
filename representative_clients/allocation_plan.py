@@ -34,13 +34,21 @@ def atomic_json(path: Path, value: dict, *, replace: bool = False) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def create_plan(domains: dict, total: int, sources: dict, consents: Path) -> dict:
+def create_plan(domains: dict, total: int, sources: dict, consents: Path, *,
+                with_reserves: bool = True, osd_mapping: Path | None = None,
+                all_consented: bool = False) -> dict:
     if set(domains) != set(BRANCH_ORDER):
         raise ValueError("Pierwszy plan wymaga list kandydatów ze wszystkich 8 OSD.")
-    targets = allocate_branch_targets({key: len(ids) for key, ids in domains.items()}, total)
+    if all_consented and (with_reserves or total != sum(len(ids) for ids in domains.values())):
+        raise ValueError("Cała pula wymaga liczby z danych i wyłączenia zastępców.")
+    targets = allocate_branch_targets({key: len(ids) for key, ids in domains.items()}, total,
+                                      with_reserves=with_reserves)
     plan = {
-        "version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
+        "version": 2, "created_at": datetime.now(timezone.utc).isoformat(),
         "total_clients": total, "consents": str(consents.resolve()),
+        "with_reserves": with_reserves,
+        "all_consented": all_consented,
+        "osd_mapping": str(osd_mapping.resolve()) if osd_mapping else None,
         "branches": {
             key: {"target": targets[key], "eligible": len(domains[key]),
                   "domain_sha256": domain_digest(domains[key]),
@@ -58,15 +66,27 @@ def load_plan(path: Path) -> dict:
     try:
         total = plan["total_clients"]
         branches = plan["branches"]
-        if plan["version"] != 1 or type(total) is not int or not 500 <= total <= 1100:
+        all_consented = plan.get("all_consented", False)
+        if type(all_consented) is not bool:
+            raise ValueError("Nieprawidłowy tryb liczby PPE z danych.")
+        if plan["version"] not in (1, 2) or type(total) is not int or total < 1 or (not all_consented and total > 1100):
             raise ValueError("Nieobsługiwana wersja lub liczba klientów.")
+        with_reserves = plan["with_reserves"] if plan["version"] == 2 else True
+        if type(with_reserves) is not bool:
+            raise ValueError("Nieprawidłowy tryb zastępców.")
+        if all_consented and with_reserves:
+            raise ValueError("Cała pula nie rezerwuje PPE na zastępców.")
         if set(branches) != set(BRANCH_ORDER):
             raise ValueError("Plan musi zawierać wszystkie 8 oddziałów.")
         for row in branches.values():
             if type(row["target"]) is not int or type(row["eligible"]) is not int:
                 raise ValueError("Niecałkowita liczba klientów.")
-            if not 1 <= row["target"] <= row["eligible"] // 2:
+            capacity = row["eligible"] // (2 if with_reserves else 1)
+            minimum = 1 if with_reserves or row["eligible"] else 0
+            if not minimum <= row["target"] <= capacity:
                 raise ValueError("Nieprawidłowa pojemność oddziału.")
+            if all_consented and row["target"] != row["eligible"]:
+                raise ValueError("Plan całej puli nie może ograniczać liczby PPE.")
             if len(row["domain_sha256"]) != 64 or not isinstance(row["sources"], list):
                 raise ValueError("Nieprawidłowy opis źródeł.")
         if sum(row["target"] for row in branches.values()) != total:
