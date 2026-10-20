@@ -205,6 +205,7 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
                 "obnizono_minimum_wagi": (group.weight_lower_nominal is not None
                                         and group.weight_lower_bound is not None
                                         and group.weight_lower_bound < group.weight_lower_nominal - 1e-12),
+                "wybrani_z_waga_zero": sum(abs(w) <= 1e-12 for w in group.selected_weights.values()),
                 "waga_max_populacja": group.weight_upper_bound,
                 "wagi_na_limicie_gornym": group.weights_at_upper_bound,
             }
