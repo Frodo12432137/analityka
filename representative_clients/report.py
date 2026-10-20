@@ -201,6 +201,10 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
                 "maks_naruszenie": group.max_constraint_violation,
                 "populacja_do_wag": result.config.weight_population_size,
                 "waga_min": group.weight_lower_bound,
+                "waga_min_pierwotna": group.weight_lower_nominal,
+                "obnizono_minimum_wagi": (group.weight_lower_nominal is not None
+                                        and group.weight_lower_bound is not None
+                                        and group.weight_lower_bound < group.weight_lower_nominal - 1e-12),
                 "waga_max_populacja": group.weight_upper_bound,
                 "wagi_na_limicie_gornym": group.weights_at_upper_bound,
             }
@@ -223,6 +227,8 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
             "maks_naruszenie",
             "populacja_do_wag",
             "waga_min",
+            "waga_min_pierwotna",
+            "obnizono_minimum_wagi",
             "waga_max_populacja",
             "wagi_na_limicie_gornym",
         ],
