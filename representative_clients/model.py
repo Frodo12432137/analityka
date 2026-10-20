@@ -185,6 +185,7 @@ class GroupResult:
     mip_node_count: Optional[int] = None
     max_constraint_violation: float = 0.0
     weight_lower_bound: Optional[float] = None
+    weight_lower_nominal: Optional[float] = None
     weight_upper_bound: Optional[float] = None
     weights_at_upper_bound: Optional[int] = None
 
