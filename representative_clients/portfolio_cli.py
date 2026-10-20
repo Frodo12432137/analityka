@@ -192,10 +192,10 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
             consent_clients[key] = set()
             exclusions[key] = set()
             required[key] = set()
-            for path, _ in entries:
+            for path, raw_branch in entries:
                 print(f"Kontrola list: {path.name} ({BRANCH_LABELS[key]})...", flush=True)
                 all_ids, allowed_ids, excluded_ids, required_ids = inspect_workbook_clients(
-                    path, consents.by_branch[key]
+                    path, consents.by_branch[key], branch=raw_branch,
                 )
                 file_candidates[key, path] = allowed_ids
                 source_clients[key].update(all_ids)
@@ -330,7 +330,7 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                     load_gams_workbook(
                         path,
                         branch=raw_branch,
-                        allowed_client_ids=consents.by_branch[key],
+                        allowed_client_ids=file_candidates[key, path],
                         on_stage=lambda message, prefix=path.name: print(
                             f"  {prefix}: {message}", flush=True
                         ),
@@ -350,6 +350,7 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                 mip_relative_gap=args.mip_gap,
                 solver_display=args.solver_log,
                 exact_clients_per_group=quotas,
+                weight_population_size=len(source_clients[key]),
             )
             config.validate()
             report_rows += args.groups * len(data.periods)
@@ -357,6 +358,11 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                 raise ValueError("Bilans wszystkich OSD przekracza limit wierszy pojedynczego arkusza Excel.")
             print(
                 f"  Dokładne limity grup: {', '.join(map(str, quotas))}.",
+                flush=True,
+            )
+            print(
+                f"  Populacja do wag: {config.weight_population_size} PPE OSD przed filtrem zgód; "
+                f"dostępni kandydaci: {len(data.client_ids)}.",
                 flush=True,
             )
             if args.validate_full:
@@ -384,6 +390,7 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
                     "branch": key, "group": group.group, "plan_id": plan["plan_id"] if plan else None,
                     "selected_weights": dict(group.selected_weights), "objective_L1": group.objective_value,
                     "status": group.status_text, "reserves_complete": False,
+                    "weight_population_size": config.weight_population_size,
                 })
                 empty = ReplacementResult(matches=(), diagnostics=())
                 partial_output = BranchOutput(
@@ -490,3 +497,4 @@ def main(argv: Optional[Sequence[str]] = None, *, deadline: Optional[float] = No
 if __name__ == "__main__":  # pragma: no cover
     from .runtime import run_portfolio
     raise SystemExit(run_portfolio())
+

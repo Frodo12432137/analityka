@@ -15,6 +15,10 @@ from .report import balance_frame, diagnostics_frame, selected_frame
 
 
 EXCEL_MAX_ROWS = 1_048_576
+PERCENT_COLUMNS = frozenset({
+    "mip_gap", "blad_L1_wzgledny", "blad_wzgledny", "bias_wzgledny",
+    "blad_wzgledny_podmiana_wszystkich", "blad_wzgledny_przed", "blad_wzgledny_po",
+})
 
 
 @dataclass(frozen=True)
@@ -120,6 +124,7 @@ def _frames(outputs: Sequence[BranchOutput]) -> Mapping[str, pd.DataFrame]:
                 "kompletny_wybor_OSD": output.selection.selected_count == output.target_clients,
                 "komplet_zastepcow": len(output.replacements.matches) == output.target_clients if output.with_reserves else None,
                 "tryb_zastepcow": "Włączony" if output.with_reserves else "Wyłączony — ocena dostępnej puli",
+                "populacja_do_wag": output.selection.config.weight_population_size,
                 "ocena_testowa": "Test na odłożonych dniach" if output.quality and
                     "Test poza doborem" in output.quality["Reprezentatywnosc"]["zakres"].values else "Brak testu poza doborem",
             }
@@ -211,10 +216,11 @@ def _style_workbook(workbook: object) -> None:
         for row in sheet.iter_rows(min_row=2):
             for cell in row:
                 header = str(headers[cell.column - 1] or "")
-                if isinstance(cell.value, float):
-                    cell.number_format = "0.0%" if ("wzgledny" in header or header == "mip_gap") else "#,##0.00"
-                elif isinstance(cell.value, int) and not isinstance(cell.value, bool):
-                    cell.number_format = "#,##0"
+                if isinstance(cell.value, (float, int)) and not isinstance(cell.value, bool):
+                    if header in PERCENT_COLUMNS:
+                        cell.number_format = "0.0%"
+                    else:
+                        cell.number_format = "#,##0.00" if isinstance(cell.value, float) else "#,##0"
                 if cell.data_type == "f":
                     # Identyfikatory i tekst ze źródeł mają pozostać tekstem, nigdy formułami.
                     cell.data_type = "s"
@@ -353,3 +359,4 @@ def write_portfolio_workbook(
     finally:
         temporary.unlink(missing_ok=True)
     return target
+
