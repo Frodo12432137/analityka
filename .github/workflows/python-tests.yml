@@ -1,9 +1,9 @@
 name: Python regression tests
 
+# Manual execution until a GitHub Actions runner is available for this account.
+# Previous automated jobs failed before any test step began.
 on:
-  push:
-    branches: ["main", "codex/**"]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
