@@ -230,6 +230,7 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
             "waga_min",
             "waga_min_pierwotna",
             "obnizono_minimum_wagi",
+            "wybrani_z_waga_zero",
             "waga_max_populacja",
             "wagi_na_limicie_gornym",
         ],
