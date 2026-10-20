@@ -12,13 +12,16 @@ from .model import SelectionData
 
 
 def inspect_workbook_clients(
-    path: str | Path, allowed_client_ids: Iterable[str]
+    path: str | Path, allowed_client_ids: Iterable[str], *, branch: str | None = None,
 ) -> Tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
     """Czyta tylko domenę klientów i ograniczenia, bez profili godzinowych."""
 
     from openpyxl import load_workbook
 
-    from .legacy_excel import _read_clients, _read_restrictions, _resolve_sheet_names
+    from .legacy_excel import (
+        _read_clients, _read_restrictions, _resolve_sheet_names,
+        _profile_sheet_names, _identifier, _client_identifier,
+    )
 
     workbook = load_workbook(Path(path), read_only=True, data_only=True)
     try:
@@ -26,6 +29,29 @@ def inspect_workbook_clients(
         _, all_clients = _read_clients(
             workbook[sheets["Klienci"]], profiles_in_sheet="Klienci_part_1" not in sheets,
         )
+        if branch is not None:
+            branches = {
+                _identifier(row[0]) for row in workbook[sheets["Oddzial"]].iter_rows(
+                    min_row=3, max_col=1, values_only=True
+                ) if row[0] not in (None, "")
+            }
+            branch = _identifier(branch)
+            if branch not in branches:
+                raise ValueError(f"Nie znaleziono oddziału {branch!r}.")
+            if len(branches) > 1:
+                # W pliku wielooddziałowym domena Klienci jest wspólna.
+                # Liczymy wyłącznie PPE z profilami przypisanymi do tego OSD.
+                branch_clients = set()
+                for name in _profile_sheet_names(sheets):
+                    for row_number, row in enumerate(workbook[name].iter_rows(
+                        min_row=3, max_col=2, values_only=True
+                    ), start=3):
+                        if _identifier(row[0]) == branch:
+                            client = _client_identifier(row[1], f"{name}!B{row_number}")
+                            if client not in all_clients:
+                                raise ValueError(f"{name}: klient nie występuje w arkuszu Klienci.")
+                            branch_clients.add(client)
+                all_clients = frozenset(branch_clients)
         excluded, required = _read_restrictions(workbook[sheets["Ograniczenia"]])
         client_set = all_clients & frozenset(allowed_client_ids)
         missing_consent = (set(required) & all_clients) - client_set
@@ -225,3 +251,4 @@ def allocate_group_quotas(data: SelectionData, total: int, group_count: int) -> 
         groups.keys(),
     )
     return tuple(allocation[name] for name in groups)
+

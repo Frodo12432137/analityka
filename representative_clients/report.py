@@ -199,6 +199,10 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
                 "mip_dual_bound": group.mip_dual_bound,
                 "mip_node_count": group.mip_node_count,
                 "maks_naruszenie": group.max_constraint_violation,
+                "populacja_do_wag": result.config.weight_population_size,
+                "waga_min": group.weight_lower_bound,
+                "waga_max_populacja": group.weight_upper_bound,
+                "wagi_na_limicie_gornym": group.weights_at_upper_bound,
             }
         )
     return pd.DataFrame(
@@ -217,6 +221,10 @@ def diagnostics_frame(result: SelectionResult) -> pd.DataFrame:
             "mip_dual_bound",
             "mip_node_count",
             "maks_naruszenie",
+            "populacja_do_wag",
+            "waga_min",
+            "waga_max_populacja",
+            "wagi_na_limicie_gornym",
         ],
     )
 
@@ -232,6 +240,7 @@ def configuration_frame(result: SelectionResult) -> pd.DataFrame:
         ("mip_relative_gap", config.mip_relative_gap),
         ("mnoznik_wagi_min", config.weight_lower_factor),
         ("mnoznik_wagi_max", config.weight_upper_factor),
+        ("populacja_do_wag", config.weight_population_size),
         ("normalizacja_numeryczna", config.normalize_balance),
         ("liczba_wykluczonych", len(result.excluded)),
         ("liczba_wymaganych", len(result.required_weights)),
@@ -373,3 +382,4 @@ def write_result_workbook(
     finally:
         temporary.unlink(missing_ok=True)
     return target
+

@@ -120,6 +120,19 @@ def contribution_weight_caps(
     return caps
 
 
+def selection_weight_bounds(data: SelectionData, config: SelectionConfig) -> Tuple[float, float]:
+    """Oddziela wielkość reprezentowanej domeny od dostępnej puli kandydatów."""
+    population = config.weight_population_size
+    if population is None:
+        population = len(data.client_ids)
+    if population < len(data.client_ids):
+        raise ValueError("Populacja do wag nie może być mniejsza od puli kandydatów.")
+    return gams_weight_bounds(
+        population, config.max_clients_per_group,
+        config.weight_lower_factor, config.weight_upper_factor,
+    )
+
+
 def _maximum_absolute_by_column(values: np.ndarray) -> np.ndarray:
     """Maksimum modułu kolumn bez tworzenia pełnej kopii przez ``abs``."""
 
@@ -429,12 +442,7 @@ def solve_group(
     target_original = np.asarray(data.branch_balance, dtype=float)
     period_count, client_count = profiles.shape
 
-    lower_weight, upper_weight = gams_weight_bounds(
-        len(data.client_ids),
-        config.max_clients_per_group,
-        config.weight_lower_factor,
-        config.weight_upper_factor,
-    )
+    lower_weight, upper_weight = selection_weight_bounds(data, config)
     if _effective_upper is None or _maximum_absolute_profile is None:
         caps = contribution_weight_caps(
             profiles, target_original, config.max_contribution_share
@@ -750,6 +758,11 @@ def solve_group(
         mip_dual_bound=scaled_dual_bound,
         mip_node_count=None if node_count is None else int(node_count),
         max_constraint_violation=max_violation,
+        weight_lower_bound=lower_weight,
+        weight_upper_bound=upper_weight,
+        weights_at_upper_bound=int(np.count_nonzero(
+            selected_mask & np.isclose(weights, effective_upper, rtol=1e-7, atol=1e-9)
+        )),
     )
 
 
@@ -775,12 +788,7 @@ def solve_selection(
     caps_all = np.full(len(data.client_ids), np.inf, dtype=float)
     nonzero = maximum_absolute_all > 0
     caps_all[nonzero] = contribution_limit / maximum_absolute_all[nonzero]
-    lower_weight, upper_weight = gams_weight_bounds(
-        len(data.client_ids),
-        config.max_clients_per_group,
-        config.weight_lower_factor,
-        config.weight_upper_factor,
-    )
+    lower_weight, upper_weight = selection_weight_bounds(data, config)
     effective_upper_all = np.minimum(upper_weight, caps_all)
     client_position = {
         client_id: index for index, client_id in enumerate(data.client_ids)
@@ -857,3 +865,4 @@ def solve_selection(
         required_weights=dict(data.required_weights),
         excluded=frozenset(data.excluded),
     )
+

@@ -25,8 +25,15 @@ class SelectionConfig:
     normalize_balance: bool = True
     solver_display: bool = False
     exact_clients_per_group: Optional[Tuple[int, ...]] = None
+    # Pełna domena klientów OSD przed filtrem zgód; None zachowuje tryb legacy.
+    weight_population_size: Optional[int] = None
 
     def validate(self) -> None:
+        if self.weight_population_size is not None:
+            if (isinstance(self.weight_population_size, bool)
+                    or not isinstance(self.weight_population_size, Integral)
+                    or self.weight_population_size <= 0):
+                raise ValueError("weight_population_size musi być dodatnią liczbą całkowitą.")
         for name in ("max_clients_per_group", "group_count"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, Integral):
@@ -176,6 +183,9 @@ class GroupResult:
     mip_dual_bound: Optional[float] = None
     mip_node_count: Optional[int] = None
     max_constraint_violation: float = 0.0
+    weight_lower_bound: Optional[float] = None
+    weight_upper_bound: Optional[float] = None
+    weights_at_upper_bound: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -194,3 +204,4 @@ class SelectionResult:
 
     def selected_by_group(self) -> Dict[str, Mapping[str, float]]:
         return {group.group: group.selected_weights for group in self.groups}
+

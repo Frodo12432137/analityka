@@ -40,6 +40,29 @@ Raport `Pokrycie_OSD` pokazuje liczbę PPE na kolejnych etapach i oddziały
 bez kandydatów. Ich bilans nie jest oceniany, co jest zaznaczone w opisie wyniku.
 Wyniki jakości znajdują się w `Reprezentatywnosc` i `Jakosc_dni_godzin`.
 
+Limity wag w przebiegu portfelowym korzystają z pełnej domeny PPE danego OSD
+w plikach modelu, **przed filtrem zgód**. Filtr ogranicza wybór klientów, ale
+nie zmniejsza populacji używanej do skalowania wag. Części plików są łączone
+bez podwójnego liczenia PPE, także gdy dana część nie ma klientów ze zgodą.
+Nie jest używana liczba wierszy w dawnym pliku zgód ani jedna wspólna liczba
+dla wszystkich oddziałów. W plikach wielooddziałowych przynależność PPE do OSD
+jest odczytywana z wierszy profili.
+
+W arkuszu `Solver` sprawdź `populacja_do_wag`, `waga_min`,
+`waga_max_populacja` oraz `wagi_na_limicie_gornym`. Ostatnia kolumna uwzględnia
+również indywidualny limit udziału PPE w bilansie, który może być niższy
+od limitu populacyjnego. Nadal obowiązują wymagane wagi i wykluczenia.
+Domyślny limit wagi zastępcy to większa z wartości: 3000 oraz populacyjny
+limit wagi klienta podstawowego, aby nie obcinać odtworzonej skali po podmianie.
+Jeżeli pliki źródłowe już zawierają tylko małą próbę, program nie odzyska
+z nich liczebności pełnej populacji — potrzebna jest pełna domena źródłowa OSD.
+
+Po aktualizacji uruchom obliczenia ponownie. Poprzednie skoroszyty nie zmieniają
+się automatycznie. `blad_bezwzgledny` jest liczbą w jednostce bilansu;
+`blad_wzgledny` jest procentem. Zwiększenie dopuszczalnych wag nie gwarantuje
+reprezentatywności: oceniaj błędy, znaki i kształt profili, najlepiej również
+na odłożonych dniach (`--holdout-days`).
+
 ## 1. Jednorazowe przygotowanie Pythona
 
 Potrzebny jest Python 3.10 lub nowszy, **64-bitowy**, z Tcl/Tk, oraz rozszerzenie
@@ -312,3 +335,4 @@ Testy korzystają wyłącznie z syntetycznych danych i można uruchomić je tak:
 
 To potwierdza działanie kodu na przykładach testowych. Pierwszy rzeczywisty
 wynik trzeba jeszcze porównać z bilansem i wcześniejszym wynikiem GAMS.
+

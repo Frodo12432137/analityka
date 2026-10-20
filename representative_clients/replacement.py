@@ -6,6 +6,7 @@ from typing import Dict, Iterable, Mapping, Tuple
 import numpy as np
 
 from .model import SelectionData, SelectionResult
+from .solver import selection_weight_bounds
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ def choose_unique_reserves(
     selection: SelectionResult,
     *,
     initial_shortlist: int = 32,
-    maximum_weight: float = 3000.0,
+    maximum_weight: float | None = None,
     check_budget=None,
 ) -> ReplacementResult:
     """Dobiera globalnie jeden różny zastępca do każdego wybranego PPE."""
@@ -128,6 +129,10 @@ def choose_unique_reserves(
         )
     if not selected:
         return ReplacementResult(matches=(), diagnostics=())
+    if maximum_weight is None:
+        # Zachowaj historyczny limit minimalny, ale nie obcinaj skali
+        # odtworzonej z pełnej populacji klientów podstawowych.
+        maximum_weight = max(3000.0, selection_weight_bounds(data, selection.config)[1])
     selected_ids = {client_id for _, client_id, _ in selected}
     reserve_ids = tuple(
         client_id
@@ -243,3 +248,4 @@ def choose_unique_reserves(
             )
         )
     return ReplacementResult(matches=tuple(matches), diagnostics=tuple(diagnostics))
+
