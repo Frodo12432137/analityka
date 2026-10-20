@@ -373,6 +373,39 @@ def _validate_required_weights(
             )
 
 
+def _adjust_weight_floor_for_exact_selection(
+    group_name: str,
+    nominal_lower: float,
+    effective_upper: np.ndarray,
+    selection_count: Optional[int],
+    required_weights: Dict[str, float],
+) -> float:
+    """Use the normal minimum unless it makes an exact selection impossible.
+
+    Exact portfolio selection must not fail only because the heuristic GAMS
+    weight floor exceeds a hard, per-PPE contribution cap. Relax the floor
+    uniformly for this group, never the individual contribution or weight cap.
+    Fixed required weights take precedence over the heuristic minimum as well.
+    The effective floor is recorded in diagnostics and the solver status.
+    Non-exact (legacy) selection retains the unmodified minimum.
+    """
+    if selection_count is None:
+        return nominal_lower
+    if selection_count < 0 or selection_count > len(effective_upper):
+        raise NoFeasibleSolutionError(
+            f"Grupa {group_name}: wymagany wybór {selection_count}, "
+            f"dostępnych kandydatów {len(effective_upper)}."
+        )
+    floor = nominal_lower
+    if selection_count > 0:
+        # N-th largest cap: exactly N clients can receive at least this weight.
+        index = len(effective_upper) - selection_count
+        floor = min(floor, float(np.partition(effective_upper, index)[index]))
+    if required_weights:
+        floor = min(floor, min(required_weights.values()))
+    return max(0.0, floor)
+
+
 def _validate_selection_capacity(
     group_name: str,
     selection_count: Optional[int],
@@ -467,7 +500,7 @@ def solve_group(
     target_original = np.asarray(data.branch_balance, dtype=float)
     period_count, client_count = profiles.shape
 
-    lower_weight, upper_weight = selection_weight_bounds(data, config)
+    nominal_lower, upper_weight = selection_weight_bounds(data, config)
     if _effective_upper is None or _maximum_absolute_profile is None:
         caps = contribution_weight_caps(
             profiles, target_original, config.max_contribution_share
@@ -497,6 +530,9 @@ def solve_group(
             f"Grupa {group_name} ma {len(group_required)} wymaganych klientów, "
             f"ale dokładny limit wynosi {selection_count}."
         )
+    lower_weight = _adjust_weight_floor_for_exact_selection(
+        group_name, nominal_lower, effective_upper, selection_count, group_required
+    )
     _validate_required_weights(
         candidate_ids, group_required, lower_weight, effective_upper
     )
@@ -783,7 +819,12 @@ def solve_group(
         residual=residual,
         objective_value=objective_value,
         status=status,
-        status_text=str(result.message),
+        status_text=(
+            str(result.message)
+            + (f" [UWAGA: minimalna waga obniżona z {nominal_lower:.6g} "
+               f"do {lower_weight:.6g} dla wykonalności wyboru]"
+               if lower_weight < nominal_lower - 1e-12 else "")
+        ),
         has_solution=True,
         optimal=status == 0,
         solve_seconds=solve_seconds,
@@ -792,6 +833,7 @@ def solve_group(
         mip_node_count=None if node_count is None else int(node_count),
         max_constraint_violation=max_violation,
         weight_lower_bound=lower_weight,
+        weight_lower_nominal=nominal_lower,
         weight_upper_bound=upper_weight,
         weights_at_upper_bound=int(np.count_nonzero(
             selected_mask & np.isclose(weights, effective_upper, rtol=1e-7, atol=1e-9)
@@ -821,7 +863,7 @@ def solve_selection(
     caps_all = np.full(len(data.client_ids), np.inf, dtype=float)
     nonzero = maximum_absolute_all > 0
     caps_all[nonzero] = contribution_limit / maximum_absolute_all[nonzero]
-    lower_weight, upper_weight = selection_weight_bounds(data, config)
+    nominal_lower, upper_weight = selection_weight_bounds(data, config)
     effective_upper_all = np.minimum(upper_weight, caps_all)
     client_position = {
         client_id: index for index, client_id in enumerate(data.client_ids)
@@ -857,10 +899,13 @@ def solve_selection(
                 f"Grupa {group_name} ma tylko {len(candidate_ids)} kandydatów, "
                 f"a wymaga wyboru {selection_count}."
             )
-        _validate_required_weights(
-            candidate_ids, group_required, lower_weight, group_upper
+        group_lower = _adjust_weight_floor_for_exact_selection(
+            group_name, nominal_lower, group_upper, selection_count, group_required
         )
-        _validate_selection_capacity(group_name, selection_count, lower_weight, group_upper)
+        _validate_required_weights(
+            candidate_ids, group_required, group_lower, group_upper
+        )
+        _validate_selection_capacity(group_name, selection_count, group_lower, group_upper)
         prepared_groups.append(
             (group_name, candidate_ids, group_upper, group_maximum, selection_count)
         )
