@@ -25,7 +25,8 @@ class SelectionConfig:
     normalize_balance: bool = True
     solver_display: bool = False
     exact_clients_per_group: Optional[Tuple[int, ...]] = None
-    # Pełna domena klientów OSD przed filtrem zgód; None zachowuje tryb legacy.
+    # Pełna domena OSD dla maksimum wagi; minimum nadal zależy od kandydatów.
+    # None zachowuje tryb legacy.
     weight_population_size: Optional[int] = None
 
     def validate(self) -> None:
@@ -184,6 +185,7 @@ class GroupResult:
     mip_node_count: Optional[int] = None
     max_constraint_violation: float = 0.0
     weight_lower_bound: Optional[float] = None
+    weight_lower_nominal: Optional[float] = None
     weight_upper_bound: Optional[float] = None
     weights_at_upper_bound: Optional[int] = None
 

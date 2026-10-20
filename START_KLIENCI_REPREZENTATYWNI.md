@@ -40,13 +40,33 @@ Raport `Pokrycie_OSD` pokazuje liczbę PPE na kolejnych etapach i oddziały
 bez kandydatów. Ich bilans nie jest oceniany, co jest zaznaczone w opisie wyniku.
 Wyniki jakości znajdują się w `Reprezentatywnosc` i `Jakosc_dni_godzin`.
 
-Limity wag w przebiegu portfelowym korzystają z pełnej domeny PPE danego OSD
+Górne limity wag w przebiegu portfelowym korzystają z pełnej domeny PPE danego OSD
 w plikach modelu, **przed filtrem zgód**. Filtr ogranicza wybór klientów, ale
 nie zmniejsza populacji używanej do skalowania wag. Części plików są łączone
 bez podwójnego liczenia PPE, także gdy dana część nie ma klientów ze zgodą.
 Nie jest używana liczba wierszy w dawnym pliku zgód ani jedna wspólna liczba
 dla wszystkich oddziałów. W plikach wielooddziałowych przynależność PPE do OSD
 jest odczytywana z wierszy profili.
+
+Minimalna waga bazowa wynosi `0,1 × liczba kandydatów /
+maksymalna liczba klientów na grupę`. Górny limit populacyjny wynosi
+`5 × pełna liczba PPE OSD / maksymalna liczba klientów na grupę`.
+Powiększenie populacji do skalowania nie podnosi więc minimum.
+
+W trybie dokładnej liczby klientów dla OSD solver może **obniżyć wyłącznie
+minimalną wagę w danej grupie**, jeśli jej wartość nominalna koliduje
+z indywidualnymi limitami udziału PPE. Nowe minimum jest najwyższą
+wartością dopuszczającą wybór żądanej liczby klientów (oraz wszystkie wagi
+wymagane). Nigdy nie zwiększa się maksymalnej wagi PPE ani maksymalnego
+udziału w bilansie. Jeśli limit udziału wynosi zero, dopuszczalna jest także
+waga zero - taka pozycja liczy się do liczebności, ale nie wpływa na bilans.
+
+W arkuszu `Solver` kolumny `waga_min_pierwotna`, `waga_min`,
+`obnizono_minimum_wagi` i `wybrani_z_waga_zero` pokazują, kiedy
+i w jakim stopniu uruchomiono adaptację. To zapewnia wykonalność wyboru przy
+niesprzecznych wagach wymaganych, **nie gwarantuje jakości odwzorowania
+bilansu**. Sprawdź MAE, znaki błędów i walidację na odłożonych dniach.
+Tryb bez dokładnej liczebności zachowuje niezmienione minimum.
 
 W arkuszu `Solver` sprawdź `populacja_do_wag`, `waga_min`,
 `waga_max_populacja` oraz `wagi_na_limicie_gornym`. Ostatnia kolumna uwzględnia

@@ -5,6 +5,8 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 from openpyxl import Workbook, load_workbook
@@ -14,7 +16,9 @@ from representative_clients.portfolio_cli import main
 from representative_clients.portfolio_data import inspect_workbook_clients
 from representative_clients.portfolio_report import _style_workbook
 from representative_clients.replacement import choose_unique_reserves
-from representative_clients.solver import solve_group, solve_selection
+from representative_clients.solver import (
+    NoFeasibleSolutionError, selection_weight_bounds, solve_group, solve_selection,
+)
 from tests.test_representative_new_consents import records
 
 
@@ -46,7 +50,7 @@ class WeightPopulationTests(unittest.TestCase):
             np.testing.assert_allclose(group.model_balance, data.branch_balance, atol=1e-7)
             self.assertLess(group.objective_value, 1e-7)
             self.assertEqual(group.weight_upper_bound, 2000)
-            self.assertEqual(group.weight_lower_bound, 40)
+            self.assertEqual(group.weight_lower_bound, 0.2)
             direct = solve_group(data, fixed, group.group, group.candidate_ids, selection_count=10)
             np.testing.assert_allclose(direct.model_balance, group.model_balance, atol=1e-7)
 
@@ -59,6 +63,136 @@ class WeightPopulationTests(unittest.TestCase):
             self.assertTrue(all(w <= 75 + 1e-7 for w in group.selected_weights.values()))
             self.assertEqual(group.weights_at_upper_bound, 10)
             self.assertGreater(group.objective_value, 0)
+
+    def test_population_increases_upper_without_excluding_peaked_client(self):
+        data = SelectionData(
+            branch="SYNTHETIC", client_ids=("TEST_A", "TEST_B"),
+            periods=(("2026-01-01", 1), ("2026-01-01", 2)),
+            client_balance=np.array([[100.0, 1.0], [1.0, 1.0]]),
+            branch_balance=np.array([1000.0, 1000.0]),
+        )
+        legacy = SelectionConfig(
+            group_count=1, max_clients_per_group=2,
+            exact_clients_per_group=(2,), mip_relative_gap=0,
+        )
+        # Dawny sposób liczenia minimum z populacji dawał 50, choć
+        # pierwszy klient ma indywidualny limit wagi 2: model był niewykonalny.
+        config = replace(legacy, weight_population_size=1000)
+        self.assertEqual(selection_weight_bounds(data, config), (0.1, 2500))
+        old = solve_selection(data, legacy)
+        fixed = solve_selection(data, config)
+        self.assertEqual(fixed.selected_count, 2)
+        group = fixed.groups[0]
+        self.assertLessEqual(group.selected_weights["TEST_A"], 2 + 1e-7)
+        self.assertLessEqual(group.objective_value, old.groups[0].objective_value + 1e-7)
+        # Jawna mała waga wymagana, zgodna z poprzednim minimum, jest zachowana.
+        required = replace(data, required_weights={"TEST_A": 1.0})
+        self.assertEqual(solve_selection(required, config).groups[0].selected_weights["TEST_A"], 1.0)
+        direct = solve_group(data, config, "w1", data.client_ids, selection_count=2)
+        self.assertAlmostEqual(direct.objective_value, group.objective_value)
+
+    def test_exact_group_selection_relaxes_weight_floor_not_hard_caps(self):
+        data = SelectionData(
+            branch="SYNTHETIC", client_ids=("TEST_A", "TEST_B"),
+            periods=(("2026-01-01", 1),),
+            client_balance=np.array([[1.0, 1000.0]]),
+            branch_balance=np.array([100.0]),
+        )
+        config = SelectionConfig(
+            group_count=2, max_clients_per_group=1, exact_clients_per_group=(1, 1),
+            weight_population_size=1000, mip_relative_gap=0,
+        )
+        result = solve_selection(data, config)
+        self.assertEqual(result.selected_count, 2)
+        self.assertEqual(result.groups[0].weight_lower_bound, 0.2)
+        self.assertAlmostEqual(result.groups[1].weight_lower_bound, 0.02, places=9)
+        self.assertEqual(result.groups[1].weight_lower_nominal, 0.2)
+        self.assertIn("minimalna waga obniżona", result.groups[1].status_text)
+        self.assertLessEqual(result.groups[1].selected_weights["TEST_B"], 0.02 + 1e-7)
+        direct = solve_group(data, config, "w2", ("TEST_B",), selection_count=1)
+        self.assertAlmostEqual(direct.weight_lower_bound, result.groups[1].weight_lower_bound)
+
+    def test_all_candidates_selected_even_with_zero_contribution_caps(self):
+        data = SelectionData(
+            branch="SYNTHETIC",
+            client_ids=("ZERO_A", "ZERO_B", "SMALL_C", "SMALL_D"),
+            periods=(("2026-01-01", 1), ("2026-01-01", 2)),
+            client_balance=np.array([[1, 2, 5000, -5000],
+                                     [1, 2, 5000, -5000]], dtype=float),
+            branch_balance=np.array([0.0, 0.0]),
+        )
+        config = SelectionConfig(
+            group_count=2, max_clients_per_group=2, exact_clients_per_group=(2, 2),
+            weight_population_size=100_000, mip_relative_gap=0,
+        )
+        result = solve_selection(data, config)
+        self.assertEqual(result.selected_count, 4)
+        self.assertTrue(all(g.weight_lower_bound == 0 for g in result.groups))
+        self.assertTrue(all(g.weight_lower_nominal == 0.2 for g in result.groups))
+        self.assertTrue(all(all(w == 0 for w in g.selected_weights.values()) for g in result.groups))
+        np.testing.assert_allclose(result.groups[0].model_balance, [0, 0])
+
+    def test_adaptive_floor_retains_normal_non_exact_mode(self):
+        data = SelectionData(
+            branch="SYNTHETIC",
+            client_ids=("A", "B"),
+            periods=(("2026-01-01", 1),),
+            client_balance=np.array([[1.0, 1000.0]]),
+            branch_balance=np.array([100.0]),
+        )
+        config = SelectionConfig(
+            group_count=1, max_clients_per_group=2,
+            weight_population_size=1000, mip_relative_gap=0,
+        )
+        result = solve_selection(data, config)
+        self.assertEqual(result.groups[0].weight_lower_bound, 0.1)
+        self.assertEqual(result.groups[0].weight_lower_nominal, 0.1)
+
+    def test_required_weight_above_contribution_cap_is_still_rejected(self):
+        data = SelectionData(
+            branch="SYNTHETIC",
+            client_ids=("A",),
+            periods=(("2026-01-01", 1),),
+            client_balance=np.array([[1000.0]]),
+            branch_balance=np.array([100.0]),
+            required_weights={"A": 1.0},
+        )
+        config = SelectionConfig(
+            group_count=1, max_clients_per_group=1, exact_clients_per_group=(1,),
+            weight_population_size=1000,
+        )
+        with self.assertRaisesRegex(NoFeasibleSolutionError, "Wymagana waga"):
+            solve_selection(data, config)
+
+    def test_weight_floor_adapts_across_distinct_group_shapes(self):
+        data = SelectionData(
+            branch="PGED_Lublin",
+            client_ids=("A", "B", "C", "D", "E", "F"),
+            periods=(("2026-01-01", 1), ("2026-01-01", 2)),
+            client_balance=np.array([[1, 2, 100, 200, 1000, 2000],
+                                     [1, 2, 100, 200, 1000, 2000]], dtype=float),
+            branch_balance=np.array([100.0, 100.0]),
+        )
+        config = SelectionConfig(
+            group_count=3, max_clients_per_group=2, exact_clients_per_group=(2, 2, 2),
+            weight_population_size=50000, mip_relative_gap=0,
+        )
+        result = solve_selection(data, config)
+        self.assertEqual(result.selected_count, 6)
+        for group in result.groups:
+            self.assertEqual(len(group.selected_weights), 2)
+            self.assertGreaterEqual(group.weight_lower_bound, 0)
+            self.assertLessEqual(group.weight_lower_bound, group.weight_lower_nominal)
+            self.assertLessEqual(group.max_constraint_violation, 1e-4)
+
+    def test_no_solution_message_distinguishes_timeout_and_infeasibility(self):
+        data, config = self.case()
+        for status, expected in ((1, "limit czasu lub iteracji"), (2, "zadanie niewykonalne")):
+            with self.subTest(status=status):
+                fake = SimpleNamespace(status=status, x=None, message="synthetic solver message")
+                with patch("scipy.optimize.milp", return_value=fake):
+                    with self.assertRaisesRegex(NoFeasibleSolutionError, expected):
+                        solve_selection(data, config)
 
     def test_reserves_can_match_primary_weights_above_legacy_limit(self):
         data, config = self.case()

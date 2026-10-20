@@ -1,0 +1,25 @@
+name: Python regression tests
+
+# Manual execution until a GitHub Actions runner is available for this account.
+# Previous automated jobs failed before any test step began.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: representative_clients/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r representative_clients/requirements.txt
+      - name: Run representative client regression suite
+        run: python -m unittest discover -s tests -p "test_representative*.py" -v
