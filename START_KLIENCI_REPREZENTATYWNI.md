@@ -48,13 +48,25 @@ Nie jest używana liczba wierszy w dawnym pliku zgód ani jedna wspólna liczba
 dla wszystkich oddziałów. W plikach wielooddziałowych przynależność PPE do OSD
 jest odczytywana z wierszy profili.
 
-Minimalna waga zachowuje dotychczasową podstawę: `0,1 × liczba kandydatów /
+Minimalna waga bazowa wynosi `0,1 × liczba kandydatów /
 maksymalna liczba klientów na grupę`. Górny limit populacyjny wynosi
 `5 × pełna liczba PPE OSD / maksymalna liczba klientów na grupę`.
-Powiększenie populacji do skalowania nie podnosi więc minimum, które mogłoby
-przekroczyć indywidualny limit udziału PPE. Jeśli mimo to ograniczenia wag
-uniemożliwiają wymaganą liczebność grupy, kontrola zatrzymuje przebieg przed
-pierwszym solve i podaje liczbę możliwych do wybrania klientów.
+Powiększenie populacji do skalowania nie podnosi więc minimum.
+
+W trybie dokładnej liczby klientów dla OSD solver może **obniżyć wyłącznie
+minimalną wagę w danej grupie**, jeśli jej wartość nominalna koliduje
+z indywidualnymi limitami udziału PPE. Nowe minimum jest najwyższą
+wartością dopuszczającą wybór żądanej liczby klientów (oraz wszystkie wagi
+wymagane). Nigdy nie zwiększa się maksymalnej wagi PPE ani maksymalnego
+udziału w bilansie. Jeśli limit udziału wynosi zero, dopuszczalna jest także
+waga zero - taka pozycja liczy się do liczebności, ale nie wpływa na bilans.
+
+W arkuszu `Solver` kolumny `waga_min_pierwotna`, `waga_min`,
+`obnizono_minimum_wagi` i `wybrani_z_waga_zero` pokazują, kiedy
+i w jakim stopniu uruchomiono adaptację. To zapewnia wykonalność wyboru przy
+niesprzecznych wagach wymaganych, **nie gwarantuje jakości odwzorowania
+bilansu**. Sprawdź MAE, znaki błędów i walidację na odłożonych dniach.
+Tryb bez dokładnej liczebności zachowuje niezmienione minimum.
 
 W arkuszu `Solver` sprawdź `populacja_do_wag`, `waga_min`,
 `waga_max_populacja` oraz `wagi_na_limicie_gornym`. Ostatnia kolumna uwzględnia
