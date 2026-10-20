@@ -121,16 +121,21 @@ def contribution_weight_caps(
 
 
 def selection_weight_bounds(data: SelectionData, config: SelectionConfig) -> Tuple[float, float]:
-    """Oddziela wielkość reprezentowanej domeny od dostępnej puli kandydatów."""
+    """Populacja rozszerza maksimum, ale nie wymusza większej minimalnej wagi."""
     population = config.weight_population_size
     if population is None:
         population = len(data.client_ids)
     if population < len(data.client_ids):
         raise ValueError("Populacja do wag nie może być mniejsza od puli kandydatów.")
-    return gams_weight_bounds(
+    lower, _ = gams_weight_bounds(
+        len(data.client_ids), config.max_clients_per_group,
+        config.weight_lower_factor, config.weight_upper_factor,
+    )
+    _, upper = gams_weight_bounds(
         population, config.max_clients_per_group,
         config.weight_lower_factor, config.weight_upper_factor,
     )
+    return lower, upper
 
 
 def _maximum_absolute_by_column(values: np.ndarray) -> np.ndarray:
@@ -368,6 +373,26 @@ def _validate_required_weights(
             )
 
 
+def _validate_selection_capacity(
+    group_name: str,
+    selection_count: Optional[int],
+    lower_weight: float,
+    effective_upper: np.ndarray,
+) -> None:
+    if selection_count is None:
+        return
+    selectable = int(np.count_nonzero(effective_upper >= lower_weight - 1e-12))
+    if selection_count > selectable:
+        blocked = len(effective_upper) - selectable
+        raise NoFeasibleSolutionError(
+            f"Grupa {group_name}: sprzeczne ograniczenia wag. "
+            f"Wymagany wybór: {selection_count}, możliwy: {selectable}. "
+            f"U {blocked} kandydatów górny limit wagi jest niższy niż "
+            f"minimalna waga {lower_weight:g}. "
+            "Sprawdź minimalną wagę i limit udziału pojedynczego PPE."
+        )
+
+
 def _empty_group_result(
     group_name: str, branch_balance: np.ndarray
 ) -> GroupResult:
@@ -475,6 +500,7 @@ def solve_group(
     _validate_required_weights(
         candidate_ids, group_required, lower_weight, effective_upper
     )
+    _validate_selection_capacity(group_name, selection_count, lower_weight, effective_upper)
 
     # Dzielenie obu stron równań bilansu przez tę samą wartość nie zmienia
     # rozwiązania, a ogranicza problemy numeryczne na danych energetycznych.
@@ -576,8 +602,15 @@ def solve_group(
 
     status = int(getattr(result, "status", -1))
     if result.x is None:
+        reason = {
+            1: "limit czasu lub iteracji bez dopuszczalnego rozwiązania",
+            2: "zadanie niewykonalne — sprzeczne ograniczenia",
+            3: "zadanie nieograniczone",
+            4: "błąd solvera",
+        }.get(status, "nieznany status")
         raise NoFeasibleSolutionError(
-            f"Grupa {group_name}: solver nie zwrócił rozwiązania ({result.message})."
+            f"Grupa {group_name}: solver nie zwrócił rozwiązania; "
+            f"status {status}: {reason} ({result.message})."
         )
     if status not in (0, 1):
         raise NoFeasibleSolutionError(
@@ -827,6 +860,7 @@ def solve_selection(
         _validate_required_weights(
             candidate_ids, group_required, lower_weight, group_upper
         )
+        _validate_selection_capacity(group_name, selection_count, lower_weight, group_upper)
         prepared_groups.append(
             (group_name, candidate_ids, group_upper, group_maximum, selection_count)
         )

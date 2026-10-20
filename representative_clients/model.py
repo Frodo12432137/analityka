@@ -25,7 +25,8 @@ class SelectionConfig:
     normalize_balance: bool = True
     solver_display: bool = False
     exact_clients_per_group: Optional[Tuple[int, ...]] = None
-    # Pełna domena klientów OSD przed filtrem zgód; None zachowuje tryb legacy.
+    # Pełna domena OSD dla maksimum wagi; minimum nadal zależy od kandydatów.
+    # None zachowuje tryb legacy.
     weight_population_size: Optional[int] = None
 
     def validate(self) -> None:

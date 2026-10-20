@@ -40,13 +40,21 @@ Raport `Pokrycie_OSD` pokazuje liczbę PPE na kolejnych etapach i oddziały
 bez kandydatów. Ich bilans nie jest oceniany, co jest zaznaczone w opisie wyniku.
 Wyniki jakości znajdują się w `Reprezentatywnosc` i `Jakosc_dni_godzin`.
 
-Limity wag w przebiegu portfelowym korzystają z pełnej domeny PPE danego OSD
+Górne limity wag w przebiegu portfelowym korzystają z pełnej domeny PPE danego OSD
 w plikach modelu, **przed filtrem zgód**. Filtr ogranicza wybór klientów, ale
 nie zmniejsza populacji używanej do skalowania wag. Części plików są łączone
 bez podwójnego liczenia PPE, także gdy dana część nie ma klientów ze zgodą.
 Nie jest używana liczba wierszy w dawnym pliku zgód ani jedna wspólna liczba
 dla wszystkich oddziałów. W plikach wielooddziałowych przynależność PPE do OSD
 jest odczytywana z wierszy profili.
+
+Minimalna waga zachowuje dotychczasową podstawę: `0,1 × liczba kandydatów /
+maksymalna liczba klientów na grupę`. Górny limit populacyjny wynosi
+`5 × pełna liczba PPE OSD / maksymalna liczba klientów na grupę`.
+Powiększenie populacji do skalowania nie podnosi więc minimum, które mogłoby
+przekroczyć indywidualny limit udziału PPE. Jeśli mimo to ograniczenia wag
+uniemożliwiają wymaganą liczebność grupy, kontrola zatrzymuje przebieg przed
+pierwszym solve i podaje liczbę możliwych do wybrania klientów.
 
 W arkuszu `Solver` sprawdź `populacja_do_wag`, `waga_min`,
 `waga_max_populacja` oraz `wagi_na_limicie_gornym`. Ostatnia kolumna uwzględnia
